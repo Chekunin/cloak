@@ -1,0 +1,9 @@
+/cloak
+/cloakd
+/dist/
+/bin/
+*.test
+*.out
+.idea/
+.vscode/
+.DS_Store
