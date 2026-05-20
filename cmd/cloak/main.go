@@ -38,6 +38,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newEndpointCmd())
 	root.AddCommand(newConnectCmd())
 	root.AddCommand(newExecCmd())
+	root.AddCommand(newCredsCmd())
 	root.AddCommand(newTokenCmd())
 	root.AddCommand(newLogCmd())
 	return root

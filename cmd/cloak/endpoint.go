@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"sort"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -33,10 +34,14 @@ func newEndpointListCmd() *cobra.Command {
 			}
 			emit(eps, func() {
 				w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-				fmt.Fprintln(w, "NAME\tTYPE\tMODE\tADDRESS\tCONNS")
+				fmt.Fprintln(w, "NAME\tTYPE\tKIND\tMODE\tADDRESS\tCONNS")
 				for _, e := range eps {
-					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\n",
-						e.SecretName, e.Type, e.Mode, e.LocalAddr, e.Stats.ConnectionsTotal)
+					addr := e.LocalAddr
+					if addr == "" {
+						addr = "-"
+					}
+					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\n",
+						e.SecretName, e.Type, e.Kind, e.Mode, addr, e.Stats.ConnectionsTotal)
 				}
 				_ = w.Flush()
 			})
@@ -63,12 +68,29 @@ func newEndpointOpenCmd() *cobra.Command {
 				return err
 			}
 			emit(ep, func() {
-				fmt.Printf("Endpoint:        %s\n", ep.LocalAddr)
-				fmt.Printf("Connection URL:  %s\n", ep.ConnectionString)
+				if ep.LocalAddr != "" {
+					fmt.Printf("Endpoint:        %s\n", ep.LocalAddr)
+				}
+				if ep.ConnectionString != "" {
+					fmt.Printf("Connection URL:  %s\n", ep.ConnectionString)
+				}
 				if !ep.ExpiresAt.IsZero() {
 					fmt.Printf("Expires at:      %s\n", ep.ExpiresAt.Local().Format("2006-01-02 15:04:05"))
 				}
-				if len(ep.EnvVars) > 0 {
+				if ep.Kind == "materialized" {
+					// Materialized secret values are real credentials; print
+					// only the variable names, never the values.
+					names := make([]string, 0, len(ep.EnvVars))
+					for k := range ep.EnvVars {
+						names = append(names, k)
+					}
+					sort.Strings(names)
+					fmt.Println("Injected variables (values hidden):")
+					for _, k := range names {
+						fmt.Printf("  %s\n", k)
+					}
+					fmt.Fprintln(os.Stderr, "Consume with `cloak exec --with <name> -- ...` or `cloak creds <name>`.")
+				} else if len(ep.EnvVars) > 0 {
 					fmt.Println("Environment:")
 					for k, v := range ep.EnvVars {
 						fmt.Printf("  %s=%s\n", k, v)

@@ -15,12 +15,16 @@ const (
 	TypePostgres SecretType = "postgres"
 	TypeMySQL    SecretType = "mysql"
 	TypeHTTP     SecretType = "http"
+	// TypeEnv is a materialized secret: it has no network listener. Its stored
+	// key/value bag is injected into a child process as environment variables
+	// and/or rendered files (Section 16).
+	TypeEnv SecretType = "env"
 )
 
 // IsKnown reports whether t is a v1-recognized adapter type.
 func (t SecretType) IsKnown() bool {
 	switch t {
-	case TypeSSH, TypePostgres, TypeMySQL, TypeHTTP:
+	case TypeSSH, TypePostgres, TypeMySQL, TypeHTTP, TypeEnv:
 		return true
 	}
 	return false

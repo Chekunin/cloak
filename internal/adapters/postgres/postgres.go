@@ -37,6 +37,9 @@ func New() *Adapter { return &Adapter{} }
 // Type returns store.TypePostgres.
 func (a *Adapter) Type() store.SecretType { return store.TypePostgres }
 
+// Kind reports that Postgres is a proxied adapter.
+func (a *Adapter) Kind() adapters.AdapterKind { return adapters.KindProxy }
+
 // Config is the non-secret portion.
 type Config struct {
 	Host              string `json:"host"`

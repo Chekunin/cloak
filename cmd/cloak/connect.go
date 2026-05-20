@@ -27,6 +27,12 @@ func newConnectCmd() *cobra.Command {
 				_ = cli.Close()
 				return err
 			}
+			if rec.Type == client.TypeEnv {
+				_ = cli.Close()
+				fmt.Fprintln(os.Stderr, "env secrets have no endpoint to connect to.")
+				fmt.Fprintf(os.Stderr, "Use `cloak exec --with %s -- <command>` or `cloak creds %s`.\n", rec.Name, rec.Name)
+				return nil
+			}
 			ep, err := cli.OpenEndpoint(ctx, args[0], 0)
 			if err != nil {
 				_ = cli.Close()

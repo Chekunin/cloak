@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -35,13 +36,62 @@ func readPassword(prompt string, fromStdin bool) (string, error) {
 	return string(bytePassword), nil
 }
 
-// readLine prompts for a single (echoed) line on stderr and returns the trimmed result.
+// readLine prompts for a single (echoed) line on stderr and returns the trimmed
+// result.
+//
+// It reads byte-by-byte directly from stdin and never buffers past the newline.
+// That matters because interactive forms interleave readLine with readPassword
+// (which reads byte-by-byte too, via golang.org/x/term). A buffered reader here
+// would consume — and discard — lines destined for the *next* prompt whenever
+// input arrives faster than it is read: a pipe, a paste, or a here-doc. With no
+// read-ahead the two functions interleave correctly regardless of input speed.
 func readLine(prompt string) (string, error) {
 	fmt.Fprint(os.Stderr, prompt)
-	r := bufio.NewReader(os.Stdin)
-	line, err := r.ReadString('\n')
-	if err != nil {
-		return "", err
+	return readRawLine()
+}
+
+// promptIn is the reader readRawLine consumes. It is os.Stdin in production
+// and is overridden by tests.
+var promptIn io.Reader = os.Stdin
+
+// readRawLine reads one line from promptIn one byte at a time, stopping after
+// '\n'. A trailing '\r' is trimmed. On EOF it returns whatever was read so far
+// along with io.EOF.
+func readRawLine() (string, error) {
+	var b []byte
+	buf := make([]byte, 1)
+	for {
+		n, err := promptIn.Read(buf)
+		if n > 0 {
+			if buf[0] == '\n' {
+				return strings.TrimRight(string(b), "\r"), nil
+			}
+			b = append(b, buf[0])
+		}
+		if err != nil {
+			if err == io.EOF {
+				return strings.TrimRight(string(b), "\r"), io.EOF
+			}
+			return strings.TrimRight(string(b), "\r"), err
+		}
 	}
-	return strings.TrimRight(line, "\r\n"), nil
+}
+
+// readMultiline reads lines from stdin until a line containing only "." and
+// returns them joined with newlines (with a trailing newline). Used for
+// multi-line file templates.
+func readMultiline() (string, error) {
+	var b strings.Builder
+	for {
+		line, err := readRawLine()
+		if line == "." {
+			break
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+		if err != nil {
+			break
+		}
+	}
+	return b.String(), nil
 }

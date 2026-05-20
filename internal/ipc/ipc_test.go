@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Chekunin/cloak/internal/adapters"
+	"github.com/Chekunin/cloak/internal/adapters/envadapter"
 	"github.com/Chekunin/cloak/internal/adapters/httpadapter"
 	"github.com/Chekunin/cloak/internal/audit"
 	"github.com/Chekunin/cloak/internal/endpoints"
@@ -56,7 +57,7 @@ func TestE2EHTTP(t *testing.T) {
 	reg := adapters.NewRegistry()
 	reg.Register(httpadapter.New())
 
-	em := endpoints.NewManager(reg, v, st, auditLog, 0)
+	em := endpoints.NewManager(reg, v, st, auditLog, 0, filepath.Join(dir, "run"))
 	v.RegisterLockHook(func(reason vault.LockReason) { em.CloseAll(string(reason)) })
 
 	server := ipc.New(socketPath, st, auditLog, zerolog.Nop())
@@ -162,6 +163,128 @@ func TestE2EHTTP(t *testing.T) {
 
 	// Suppress unused warning for secrets package import.
 	_ = secrets.NewFromString
+}
+
+// TestE2EEnv exercises a materialized (env) secret end-to-end over IPC:
+// create → open (materialized, real values returned) → and the persistent-mode
+// rejection.
+func TestE2EEnv(t *testing.T) {
+	dir := t.TempDir()
+	socketPath := filepath.Join(dir, "cloakd.sock")
+
+	auditLog, err := audit.Open(filepath.Join(dir, "audit.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer auditLog.Close()
+
+	v, err := vault.New(filepath.Join(dir, "vault.meta.json"), 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer v.Shutdown()
+
+	st, err := store.Open(filepath.Join(dir, "vault.db"), v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	reg := adapters.NewRegistry()
+	reg.Register(envadapter.New())
+
+	em := endpoints.NewManager(reg, v, st, auditLog, 0, filepath.Join(dir, "run"))
+	v.RegisterLockHook(func(reason vault.LockReason) { em.CloseAll(string(reason)) })
+
+	server := ipc.New(socketPath, st, auditLog, zerolog.Nop())
+	ipc.RegisterAll(server, ipc.Deps{
+		Vault: v, Store: st, Endpoints: em, Audit: auditLog, Adapters: reg,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := server.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer server.Stop()
+
+	c, err := pkgclient.Dial(ctx, socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if err := c.VaultInit(ctx, "pw"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if err := c.VaultUnlock(ctx, "pw"); err != nil {
+		t.Fatalf("unlock: %v", err)
+	}
+	tok, err := c.CreateToken(ctx, "test")
+	if err != nil {
+		t.Fatalf("create token: %v", err)
+	}
+	if err := c.Authenticate(ctx, tok.Token); err != nil {
+		t.Fatalf("hello: %v", err)
+	}
+
+	// Persistent mode must be rejected for a materialized secret.
+	_, err = c.CreateSecret(ctx, pkgclient.CreateSecretRequest{
+		Name:           "bad",
+		Type:           pkgclient.TypeEnv,
+		Config:         map[string]any{},
+		Secret:         map[string]any{"values": map[string]string{"K": "v"}},
+		EndpointConfig: &pkgclient.EndpointConfig{Mode: pkgclient.ModePersistent},
+	})
+	if err == nil {
+		t.Fatal("expected persistent-mode env secret to be rejected")
+	}
+
+	// Create a valid session-mode env secret.
+	rec, err := c.CreateSecret(ctx, pkgclient.CreateSecretRequest{
+		Name: "aws-prod",
+		Type: pkgclient.TypeEnv,
+		Config: map[string]any{
+			"files": []any{map[string]any{
+				"basename": "credentials",
+				"path_env": "AWS_SHARED_CREDENTIALS_FILE",
+				"template": "[default]\naws_access_key_id={{ .AWS_ACCESS_KEY_ID }}\n",
+			}},
+		},
+		Secret: map[string]any{"values": map[string]string{
+			"AWS_ACCESS_KEY_ID":     "AKIAEXAMPLE",
+			"AWS_SECRET_ACCESS_KEY": "supersecret",
+		}},
+		EndpointConfig: &pkgclient.EndpointConfig{Mode: pkgclient.ModeSession},
+	})
+	if err != nil {
+		t.Fatalf("create env secret: %v", err)
+	}
+
+	ep, err := c.OpenEndpoint(ctx, rec.Name, 60)
+	if err != nil {
+		t.Fatalf("open endpoint: %v", err)
+	}
+	if ep.Kind != "materialized" {
+		t.Fatalf("kind = %q, want materialized", ep.Kind)
+	}
+	if ep.LocalAddr != "" {
+		t.Fatalf("materialized endpoint has listener addr %q", ep.LocalAddr)
+	}
+	if ep.EnvVars["AWS_ACCESS_KEY_ID"] != "AKIAEXAMPLE" {
+		t.Fatalf("real value not returned over IPC: %v", ep.EnvVars)
+	}
+	if ep.EnvVars["AWS_SHARED_CREDENTIALS_FILE"] == "" {
+		t.Fatal("rendered file path not injected")
+	}
+
+	if err := c.VaultLock(ctx); err != nil {
+		t.Fatal(err)
+	}
+	eps, _ := c.ListEndpoints(ctx)
+	if len(eps) != 0 {
+		t.Fatalf("endpoints not closed on lock: %d remain", len(eps))
+	}
 }
 
 func envFirstKey(m map[string]string, suffix string) string {

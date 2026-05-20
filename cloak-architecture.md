@@ -990,6 +990,419 @@ If a v1 design choice would make any of the above harder, change the choice. The
 
 ---
 
+## 16. Materialized secrets — the `env` adapter
+
+> **Status:** implemented (v1.x). This section specifies a feature added after
+> the original v1 spec. It is the consolidated, authoritative reference for the
+> `env` type: where it conflicts with the inline struct definitions in §3.2–3.6
+> and §9, this section's "Amendments" notes win, and those older sections are
+> left as written for the original four proxied types.
+
+### 16.1 Motivation and the two secret tiers
+
+The four v1 adapters (`postgres`, `mysql`, `ssh`, `http`) all share one shape:
+the client speaks a network protocol to a `127.0.0.1:port` listener, Cloak
+terminates that protocol, and re-injects the real credential on the upstream
+leg. The real secret never reaches the client.
+
+Many credentials do **not** fit that shape. CLI tools like `aws`, `gcloud`,
+`kubectl`, `terraform`, `docker`, and `gh` authenticate by reading credentials
+from **environment variables**, a **config file**, or a `credential_process`
+command — not from a socket Cloak can proxy. To cover them, Cloak needs a
+second, explicitly weaker tier.
+
+Cloak therefore recognizes two kinds of secret:
+
+- **Proxied secrets** (`postgres`, `mysql`, `ssh`, `http`) — Cloak sits in the
+  byte path. The real secret never reaches the client. This is the strong tier
+  and the product's headline guarantee.
+- **Materialized secrets** (`env`, introduced here) — Cloak has no protocol to
+  terminate. It decrypts the stored values and **injects them** into a single
+  child process (as environment variables and/or a rendered file). The real
+  secret **does** reach that process. This is the weak tier: Cloak degrades
+  from "proxy" to "encrypted-at-rest store + central management + lifecycle +
+  audit".
+
+The weakening is deliberate and must be **visible**: materialized secrets are a
+distinct secret type, flagged distinctly in `secret list` and the audit log, so
+a user always knows which of their secrets are never-exposed and which are
+merely well-managed. See §16.8.
+
+### 16.2 Data model
+
+#### 16.2.1 New secret type
+
+Add `env` to `store.SecretType`:
+
+```go
+const TypeEnv SecretType = "env"
+```
+
+`IsKnown()` accepts it. The `secrets.type` column comment in §3.2 becomes
+`"ssh" | "postgres" | "mysql" | "http" | "env"`. No SQL schema migration is
+required — `env` is just another value in the existing `type` column, and its
+key/value bag reuses `secret_blob` exactly as the other types reuse it.
+
+#### 16.2.2 Encrypted payload shape (`secret_blob`)
+
+The decrypted payload for `env` is a flat string→string map of **all** stored
+values, secret and non-secret alike (e.g. `AWS_DEFAULT_REGION` is not secret
+but is stored encrypted anyway — keeping the bag homogeneous is simpler than a
+split, and over-encrypting a region name is harmless):
+
+```json
+{
+  "values": {
+    "AWS_ACCESS_KEY_ID":     "AKIA...",
+    "AWS_SECRET_ACCESS_KEY":  "...",
+    "AWS_DEFAULT_REGION":     "eu-west-1"
+  }
+}
+```
+
+Each key in `values` is used **verbatim** as an environment variable name when
+env injection is enabled (§16.2.4). This is intentional and differs from the
+`<NAME>_`-prefixing the proxied adapters apply: the point of an `env` secret is
+that tools find the exact variable names they already look for.
+
+#### 16.2.3 Non-secret config shape (`config_json`)
+
+`config_json` for `env` holds only structure — no secret values:
+
+```json
+{
+  "inject_env": true,
+  "files": [
+    {
+      "basename": "credentials",
+      "path_env": "AWS_SHARED_CREDENTIALS_FILE",
+      "template": "[default]\naws_access_key_id={{ .AWS_ACCESS_KEY_ID }}\naws_secret_access_key={{ .AWS_SECRET_ACCESS_KEY }}\n"
+    }
+  ]
+}
+```
+
+- `inject_env` (default `true`) — whether the `values` map is injected as
+  environment variables. Set `false` for tools that read only a file.
+- `files` (optional, may be empty) — file-rendering specs. Each spec:
+  - `basename` — file name created inside the per-materialization run dir
+    (§16.4.4).
+  - `path_env` — environment variable that receives the **absolute path** of
+    the written file.
+  - `template` — a `text/template` body rendered against the decrypted
+    `values` map (`{{ .KEY }}`). The template is structure, not secret, so it
+    lives in `config_json`; only the rendered *output* is secret.
+
+A secret with `inject_env=false` and no `files` is rejected by validation —
+it would deliver nothing.
+
+#### 16.2.4 Endpoint config constraints
+
+`env` secrets reuse the existing `EndpointConfig` struct with constraints:
+
+- `mode` **must** be `session`. Persistent mode is rejected by `ValidateConfig`
+  in v1.x — a persistent `env` secret has no listener and nothing to auto-open
+  into; "render a file on unlock, shred on lock" is a coherent idea but is
+  deferred (§16.9).
+- `persistent_port` — unused; rejected if set.
+- `require_local_auth` — unused (there is no listener to authenticate to);
+  ignored.
+- `session_ttl_seconds` — **used**. Bounds the lifetime of the materialization
+  handle and its rendered files (§16.4). Default 3600.
+- `max_concurrent_connections` — unused; ignored.
+
+#### 16.2.5 Validation rules (`ValidateConfig`)
+
+The `env` adapter's `ValidateConfig` enforces:
+
+1. `values` is non-empty.
+2. Every key in `values` matches `^[A-Za-z_][A-Za-z0-9_]*$` (valid env var
+   name) — this holds even when `inject_env=false`, because file templates
+   reference the keys by name.
+3. `inject_env=true` **or** `len(files) > 0` (the secret must deliver
+   something).
+4. Each `files[].template` parses as a `text/template` and references only
+   keys present in `values` (rendered with `Option("missingkey=error")`).
+5. Each `files[].path_env` matches the env-var-name regex; `basename` is a
+   single path element (no `/`, not `.`/`..`).
+6. `endpoint_config.mode == "session"`.
+
+### 16.3 Adapter interface generalization
+
+The current `Adapter` interface (§3.4) is built entirely around
+`ServeConnection(ctx, client net.Conn, ...)`. An `env` adapter has no
+connection. Split the interface into a common base plus two role interfaces.
+
+```go
+// AdapterKind tells the endpoint manager which lifecycle a type follows.
+type AdapterKind int
+
+const (
+    KindProxy       AdapterKind = iota // opens a 127.0.0.1 listener
+    KindMaterialized                   // injects values into a child process
+)
+
+// Adapter is the common base every type implements.
+type Adapter interface {
+    Type() store.SecretType
+    Kind() AdapterKind
+    ValidateConfig(config map[string]any, secret map[string]any) error
+}
+
+// ProxyAdapter is implemented by postgres, mysql, ssh, http.
+// (These are the methods the current Adapter interface already has.)
+type ProxyAdapter interface {
+    Adapter
+    ServeConnection(ctx context.Context, client net.Conn, decoded DecryptedSecret, localCreds LocalCredentials) error
+    ConnectionString(localAddr string, decoded DecryptedSecret, localCreds LocalCredentials) string
+    EnvVars(localAddr string, decoded DecryptedSecret, localCreds LocalCredentials, envPrefix string) map[string]string
+}
+
+// MaterializingAdapter is implemented by env (and future credential-injection types).
+type MaterializingAdapter interface {
+    Adapter
+    // Materialize decrypts the secret into the values to deliver to a child
+    // process. It does not touch the filesystem — the endpoint manager owns
+    // file writing and cleanup (§16.4.4).
+    Materialize(decoded DecryptedSecret) (Materialization, error)
+}
+
+// Materialization is what a MaterializingAdapter produces.
+type Materialization struct {
+    // Env is the set of environment variables to inject (real secret values).
+    // Empty when config.inject_env is false.
+    Env map[string]string
+    // Files are file bodies the manager must write to the run dir before
+    // returning to the client.
+    Files []RenderedFile
+}
+
+type RenderedFile struct {
+    Basename string                // file name within the per-materialization run dir
+    PathEnv  string                // env var to set to the written file's absolute path
+    Content  *secrets.SecretBytes  // file body; manager zeroes it after writing
+}
+```
+
+`Registry` continues to store `Adapter`. Call sites type-assert to
+`ProxyAdapter` / `MaterializingAdapter` (or branch on `Kind()`). The four
+existing adapters gain a one-line `Kind() AdapterKind { return KindProxy }`;
+no other change to them.
+
+**Amends §3.4.** The interface block in §3.4 is replaced by the above. The
+`DecryptedSecret` struct is unchanged.
+
+### 16.4 Endpoint Manager generalization
+
+Today an "endpoint" is always a TCP listener, and `ActiveEndpoint` always has a
+`net.Listener`. This is the central structural change: an endpoint becomes a
+**materialization** that is *either* a network listener *or* an injected-values
+handle.
+
+#### 16.4.1 Generalized `ActiveEndpoint`
+
+```go
+type EndpointKind int
+
+const (
+    EndpointListener     EndpointKind = iota // proxied secret: a live listener
+    EndpointMaterialized                     // materialized secret: injected values
+)
+
+type ActiveEndpoint struct {
+    ID         string
+    SecretID   string
+    SecretName string
+    Type       store.SecretType
+    Kind       EndpointKind
+    Mode       store.EndpointMode   // always "session" for materialized
+    OpenedAt   time.Time
+    ExpiresAt  time.Time            // session TTL; applies to both kinds
+    Stats      EndpointStats
+    cancel     context.CancelFunc
+
+    // Set only when Kind == EndpointListener:
+    Listener   net.Listener
+    LocalAddr  string
+    LocalCreds LocalCredentials
+
+    // Set only when Kind == EndpointMaterialized:
+    RunDir     string               // per-materialization 0700 dir, or "" if no files
+    FilePaths  []string             // absolute paths written, for cleanup
+}
+```
+
+Key point: a materialized endpoint holds **no decrypted secret values** after
+`endpoints.open` returns. The values are computed, sent to the client in the
+response, and dropped. The manager retains only `RunDir`/`FilePaths` so it can
+shred the rendered files later. (The rendered files on disk are the only
+retained plaintext copy, and only when the secret defines `files`.)
+
+#### 16.4.2 Open path
+
+`endpoints.open` branches on the adapter kind:
+
+- **`KindProxy`** — unchanged from §3.3: allocate port, `net.Listen`, generate
+  local creds, spawn the accept-loop goroutine, build `connection_string` +
+  `env_vars` from the adapter.
+- **`KindMaterialized`** —
+  1. Decrypt the secret payload into a `DecryptedSecret`.
+  2. Call `adapter.Materialize(decoded)`.
+  3. If `Files` is non-empty, create `RunDir = $CLOAK_HOME/run/<endpoint-id>/`
+     mode `0700`; write each `RenderedFile` mode `0600`; zero its `Content`;
+     record the absolute path and set `Env[file.PathEnv] = absPath`.
+  4. Register an `ActiveEndpoint{Kind: EndpointMaterialized, ...}` with
+     `ExpiresAt = now + session_ttl`. **No goroutine, no listener.**
+  5. Return the IPC response with `env_vars = Materialization.Env` (plus the
+     injected file-path vars), `local_addr = ""`, `connection_string = ""`.
+
+There is no accept loop and no context-bound connection tree for a materialized
+endpoint; `cancel` is retained only to unify teardown bookkeeping.
+
+#### 16.4.3 Close / expiry / lock path
+
+For a materialized endpoint, "close" means **shred**:
+
+1. Overwrite each file in `FilePaths` with zeros, then remove it.
+2. Remove `RunDir`.
+3. Deregister the `ActiveEndpoint`.
+
+This runs on all three existing teardown triggers, unchanged:
+`endpoints.close`, session-TTL expiry, and vault lock. No proxied-endpoint
+teardown logic changes — the manager simply also walks materialized endpoints.
+
+#### 16.4.4 Run directory and cleanup ownership
+
+Rendered files live under `~/.cloak/run/<endpoint-id>/` (a new entry in §3.1's
+file list), **not** `/tmp`. Rationale: it inherits the `~/.cloak/` `0700`
+boundary, sits on a known filesystem, and is trivially swept on daemon start.
+
+**The daemon writes and owns the files** (not the CLI), because the daemon owns
+the lifecycle: it must delete them on TTL expiry and vault lock even if the
+`cloak exec` process that opened them was killed. On daemon startup, `~/.cloak/
+run/` is emptied entirely — any contents are stale from a previous run.
+
+The `cloak exec` child reads the file via the injected `path_env` variable; it
+is a descendant of `cloak exec`, runs as the same user, and the file is `0600`.
+
+#### 16.4.5 List, persistent auto-open, env collisions
+
+- `endpoints.list` includes materialized endpoints; the response gains a
+  `kind` field (`"listener"` | `"materialized"`). For materialized rows
+  `local_addr` and `connection_string` are empty.
+- The unlock-time persistent auto-open loop skips `env` secrets entirely
+  (`env` cannot be persistent, §16.2.4), so no change is needed beyond the
+  existing `mode == persistent` filter.
+- `cloak exec --with a,b` where two materialized secrets define the same env
+  var name is a **conflict**: `exec` detects the duplicate key across the
+  merged `env_vars` maps and exits with an error naming the collision, rather
+  than silently letting one win.
+
+**Amends §3.3.** `EndpointManager.listeners` stays as-is (keyed by secret ID,
+proxied endpoints only). `active` now also holds materialized endpoints. The
+`ActiveEndpoint` struct in §3.3 is replaced by §16.4.1.
+
+### 16.5 IPC changes
+
+Deliberately minimal — materialized endpoints reuse the existing
+`endpoints.open` / `endpoints.close` / `endpoints.list` methods.
+
+- `endpoints.open` request is unchanged (`{secret_id, ttl_seconds?}`).
+- `endpoints.open` response: `env_vars` is already present; for materialized
+  secrets it carries the **real values** (see §16.8). `local_addr` and
+  `connection_string` are `""`. Add an informational `kind` field.
+- `endpoints.list` rows gain `kind`.
+
+`cloak creds` (§16.6, the `credential_process` pull path) also rides
+`endpoints.open`: it opens with `ttl_seconds = 0`, meaning "compute and return
+`env_vars`, register no handle, write no files". The daemon returns the values
+and retains nothing. Output formatting is done CLI-side.
+
+**Amends §3.5.** No new methods. `endpoints.open`/`list` response fields as
+above.
+
+### 16.6 CLI surface
+
+- `cloak secret add env <name>` — interactive: description, then a loop of
+  key/value pairs (values read with echo disabled), then `inject_env?` and an
+  optional file-render spec, then TTL. Validated per §16.2.5.
+- `cloak exec --with <name> -- <cmd>` — already injects `env_vars` from
+  `endpoints.open`; for `env` secrets those are the real values. No new code
+  beyond the collision check (§16.4.5) and tolerating an empty `local_addr`.
+- `cloak endpoint open <name>` — for `env`, prints the injected variable
+  **names** and any file paths (never the values).
+- `cloak creds <name> [--format env|dotenv|json|aws]` — new command for the
+  `credential_process` integration. Dials the daemon, opens an ephemeral
+  materialization (`ttl=0`), prints the values in the chosen format, exits.
+  `--format aws` emits the AWS `credential_process` JSON shape
+  (`{"Version":1,"AccessKeyId":...,"SecretAccessKey":...}`), mapping the
+  conventional `AWS_*` keys; this mapping is a CLI-side formatter.
+- `cloak connect <name>` — for `env`, out of scope; direct the user to
+  `cloak exec`.
+
+### 16.7 Audit events
+
+Two new event types, logged with **names only — never values**:
+
+- `secret.materialized` — `details`: `secret_name`, `client` (token id + pid),
+  injected env var **names**, written file paths, `ttl`.
+- `secret.unmaterialized` — emitted on close / TTL expiry / lock, with the
+  teardown reason.
+
+`secret list` / `endpoints.list` consumers can distinguish the tier from the
+`type` (`env`) and `kind` (`materialized`) fields.
+
+**Amends §3.6.** Adds the two event types to the §3.6 list.
+
+### 16.8 Security model — explicit amendments
+
+Materialized secrets necessarily relax two of the §9 properties. The relaxation
+is **scoped to `type=env` secrets only** and must be stated, not silent.
+
+- **Amends §9 property 3** ("decrypted secret material exists only inside an
+  adapter's `ServeConnection` invocation"). For materialized secrets there is
+  no `ServeConnection`. Decrypted values exist: (a) briefly in the daemon
+  during `Materialize` and IPC-response encoding, (b) on disk in `~/.cloak/run/`
+  for any rendered files, for the materialization's lifetime, and (c) in the
+  client process and its child for the child's lifetime. Note also that once a
+  value is placed in a Go `map[string]string` / `[]string` env it is an
+  immutable, GC-managed string and **cannot be reliably zeroed** — the
+  `SecretBytes`/`Zero` discipline cannot extend past the point where the value
+  becomes an env string. This is inherent to the tier.
+
+- **Amends §9 property 4** ("the IPC server never returns raw secret material
+  to clients"). For `type=env` secrets, `endpoints.open` **does** return raw
+  secret values in `env_vars` — that is the entire purpose of the type. The
+  exception is scoped: only `type=env`, only to an authenticated client. The
+  code-review checklist becomes: *no handler returns `secret_blob` plaintext
+  except the `env`-type path of `endpoints.open`.*
+
+- **New property:** materialized rendered files are written `0600` inside a
+  `0700` per-materialization directory under `~/.cloak/run/`, and are
+  zero-overwritten then removed on close / TTL expiry / vault lock. `~/.cloak/
+  run/` is emptied on daemon startup.
+
+- **Unchanged:** all proxied types keep the full §9 guarantees. The tier split
+  exists precisely so that the strong guarantee is never quietly weakened for
+  the types that have it.
+
+### 16.9 Deferred (not in this draft)
+
+- **Persistent file rendering** — render a secret's file on vault unlock and
+  shred it on lock (e.g. maintain `~/.aws/credentials` while unlocked). Coherent
+  but writes a secret to a well-known path; deferred until the session-scoped
+  path is proven.
+- **Short-lived credential vending** — for AWS specifically, store the
+  long-lived IAM key and have Cloak call `sts:GetSessionToken` / `AssumeRole`
+  so the child receives only an expiring, scoped token. This belongs in a
+  future `aws`-specific adapter, not the generic `env` type.
+- **The `aws` SigV4 proxy adapter** — a true proxied (`KindProxy`) adapter that
+  re-signs AWS API requests, keeping the strong-tier guarantee for AWS. Tracked
+  separately; it builds on the §16.3 `Kind()` split but is otherwise unrelated
+  to this section.
+
+---
+
 ## End of specification
 
 Implement v1 strictly to this specification. When ambiguities arise, prefer the **simpler and more conservative** option, and leave a `// TODO(v1.x):` comment explaining the trade-off so it can be revisited.

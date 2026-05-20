@@ -95,6 +95,10 @@ func (p Paths) AuditLog() string { return filepath.Join(p.Home, "audit.log") }
 // HostKeysDir is the directory containing SSH host keys for the SSH adapter.
 func (p Paths) HostKeysDir() string { return filepath.Join(p.Home, "host_keys") }
 
+// RunDir is the directory holding per-materialization rendered files for env
+// secrets (Section 16.4.4). It is emptied on daemon startup.
+func (p Paths) RunDir() string { return filepath.Join(p.Home, "run") }
+
 // SocketPath returns the Unix domain socket the daemon listens on. Windows
 // callers should treat this as a named-pipe identifier.
 func (p Paths) SocketPath() string {

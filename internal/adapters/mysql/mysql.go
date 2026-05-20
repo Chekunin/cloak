@@ -31,6 +31,9 @@ func New() *Adapter { return &Adapter{} }
 // Type returns store.TypeMySQL.
 func (a *Adapter) Type() store.SecretType { return store.TypeMySQL }
 
+// Kind reports that MySQL is a proxied adapter.
+func (a *Adapter) Kind() adapters.AdapterKind { return adapters.KindProxy }
+
 // Config is the non-secret portion.
 type Config struct {
 	Host              string `json:"host"`

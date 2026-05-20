@@ -32,6 +32,8 @@ func New() *Adapter { return &Adapter{} }
 
 func (a *Adapter) Type() store.SecretType { return store.TypeHTTP }
 
+func (a *Adapter) Kind() adapters.AdapterKind { return adapters.KindProxy }
+
 // Config is the non-secret portion stored in config_json.
 type Config struct {
 	Upstream            string   `json:"upstream"`

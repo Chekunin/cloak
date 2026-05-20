@@ -23,6 +23,7 @@ This document is the day-to-day guide. For the full design specification, see
    - [`cloak endpoint`](#cloak-endpoint)
    - [`cloak connect`](#cloak-connect)
    - [`cloak exec`](#cloak-exec)
+   - [`cloak creds`](#cloak-creds)
    - [`cloak token`](#cloak-token)
    - [`cloak log`](#cloak-log)
 5. [Recipes by secret type](#5-recipes-by-secret-type)
@@ -30,6 +31,7 @@ This document is the day-to-day guide. For the full design specification, see
    - [MySQL](#mysql)
    - [SSH](#ssh)
    - [HTTP](#http)
+   - [Env](#env)
 6. [Configuration](#6-configuration)
 7. [Environment variables](#7-environment-variables)
 8. [Files on disk](#8-files-on-disk)
@@ -119,13 +121,21 @@ than 5 minutes). You can also lock it explicitly with `cloak lock`.
 One stored credential plus its endpoint configuration. Has:
 
 - A **name** you chose (e.g. `prod-db`) and a stable **id** (a ULID).
-- A **type** — one of `postgres`, `mysql`, `ssh`, `http`.
+- A **type** — one of `postgres`, `mysql`, `ssh`, `http`, `env`.
 - **Non-secret config** (host, port, user, database, host-key fingerprint…) —
   stored plaintext.
 - **Secret material** (password, private-key PEM, header injection values) —
   AEAD-encrypted under the vault DEK.
 - An **endpoint config** (persistent or session, optional fixed port, TTL,
   whether local auth is required).
+
+Secrets come in two tiers. **Proxied** secrets (`postgres`, `mysql`, `ssh`,
+`http`) are reached through a local endpoint that speaks their protocol — the
+real credential never reaches the client. **Materialized** secrets (`env`) have
+no endpoint: Cloak decrypts their stored values and injects them into a child
+process as environment variables and/or a rendered file. That covers any CLI
+tool — the AWS CLI, `gcloud`, `kubectl`, and so on — but the real secret *does*
+reach that process. See [Security model](#9-security-model).
 
 ### Endpoint
 
@@ -200,7 +210,7 @@ be recovered. Cloak does not implement password reset.
 |---|---|
 | `cloak secret list` | List stored secrets (metadata only — no credentials). |
 | `cloak secret show <name>` | Show full metadata + non-secret config for one secret. |
-| `cloak secret add <type> <name>` | Interactive prompt to add a new secret. `<type>` is `postgres`, `mysql`, `ssh`, or `http`. |
+| `cloak secret add <type> <name>` | Interactive prompt to add a new secret. `<type>` is `postgres`, `mysql`, `ssh`, `http`, or `env`. |
 | `cloak secret rotate <name>` | Replace just the secret material (password, key) — config is left alone. |
 | `cloak secret delete <name>` | Remove the secret. Any open endpoint for it is closed first. |
 
@@ -240,6 +250,8 @@ appropriate native client with the ephemeral local credentials wired in.
 - `ssh` → prints connection info; SSH-from-scratch automation is on the v1.x
   list.
 - `http` → prints the URL and bearer token.
+- `env` → not applicable (no endpoint to launch a client against). `connect`
+  prints a pointer to `cloak exec` / `cloak creds` instead.
 
 The native client (`psql`, `mysql`, …) must be installed on your `$PATH`.
 
@@ -266,6 +278,11 @@ Each adapter contributes its own env-var set:
 | mysql | `MYSQL_URL`, `<NAME>_URL`, `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_PWD`, `MYSQL_DATABASE` |
 | ssh | `<NAME>_SSH_HOST`, `<NAME>_SSH_PORT`, `<NAME>_SSH_USER`, `<NAME>_SSH_PASSWORD` |
 | http | `<NAME>_URL`, `<NAME>_TOKEN` (only if local auth is enabled) |
+| env | the secret's stored key/value pairs verbatim, plus any rendered-file path variable |
+
+For an `env` secret the injected variables are the **real** stored values, not
+ephemeral ones — see the [Env recipe](#env). If two secrets named in one
+`--with` set the same variable, `cloak exec` reports the collision and exits.
 
 `<NAME>` is the secret name uppercased, with non-alphanumeric characters
 replaced by `_`. So a secret called `stripe-api` produces
@@ -275,6 +292,37 @@ replaced by `_`. So a secret called `stripe-api` produces
 and the parent exits, Cloak still closes the endpoints. The orphan child can no
 longer reach the upstream. For long-running services, use `cloak endpoint open`
 plus `nohup` instead.
+
+### `cloak creds`
+
+```
+cloak creds <name> [--format env|json|aws]
+```
+
+Print a materialized (`env`) secret's values to stdout. Unlike `cloak exec`,
+this runs no child process — it is meant to be wired into a tool's own
+credential-helper hook.
+
+The classic use is the AWS CLI's `credential_process`. In `~/.aws/config`:
+
+```ini
+[profile prod]
+credential_process = cloak creds aws-prod --format aws
+```
+
+Now any `aws …` invocation for that profile transparently fetches the
+credentials from Cloak — no `cloak exec` wrapper needed.
+
+Formats:
+
+- `env` (default) — `KEY=VALUE` lines.
+- `json` — a `{"KEY": "VALUE"}` object.
+- `aws` — the AWS `credential_process` JSON shape; requires `AWS_ACCESS_KEY_ID`
+  and `AWS_SECRET_ACCESS_KEY` in the secret (and includes `AWS_SESSION_TOKEN`
+  if present).
+
+`cloak creds` prints real secret values to stdout — that is its purpose. The
+vault must be unlocked.
 
 ### `cloak token`
 
@@ -310,6 +358,7 @@ Event types you'll see:
 
 - `vault.unlocked`, `vault.locked`, `vault.auto_locked`
 - `secret.created`, `secret.updated`, `secret.deleted`
+- `secret.materialized`, `secret.unmaterialized` (for `env` secrets)
 - `endpoint.opened`, `endpoint.closed`, `endpoint.expired`
 - `endpoint.connection.opened`, `endpoint.connection.closed`,
   `endpoint.connection.upstream_failed`
@@ -479,6 +528,67 @@ header work too:
 Header: X-Custom={{ .prefix }}-{{ .id }}
 ```
 
+### Env
+
+The `env` type is the catch-all for tools Cloak cannot proxy — the AWS CLI,
+`gcloud`, `kubectl`, `terraform`, `docker login`, `gh`, or any program that
+reads a credential from its environment or a config file.
+
+An `env` secret is a bag of key/value pairs. It is always session-mode and has
+no endpoint. `cloak exec` injects the pairs as environment variables for one
+child process; `cloak creds` prints them for a credential helper.
+
+```
+$ cloak secret add env aws-prod
+Description (optional): AWS production account
+Enter key/value pairs (the key is the environment variable name).
+Blank key to finish.
+Key: AWS_ACCESS_KEY_ID
+Value for AWS_ACCESS_KEY_ID: ********
+Key: AWS_SECRET_ACCESS_KEY
+Value for AWS_SECRET_ACCESS_KEY: ********
+Key: AWS_DEFAULT_REGION
+Value for AWS_DEFAULT_REGION: ********
+Key:
+Inject as environment variables? [Y/n]: Y
+Render a credentials file? [y/N]: N
+Session TTL seconds [3600]:
+```
+
+Then:
+
+```bash
+cloak exec --with aws-prod -- aws s3 ls
+cloak exec --with aws-prod -- terraform apply
+```
+
+**Rendered files.** Some tools read only a file, not the environment. An `env`
+secret can render one: answer `y` to "Render a credentials file?" and supply a
+basename, the env var that should hold the file's path, and a Go
+`text/template` body referencing the value keys as `{{ .KEY }}`:
+
+```
+Render a credentials file? [y/N]: y
+  File basename (e.g. credentials): credentials
+  Env var to receive the file path (e.g. AWS_SHARED_CREDENTIALS_FILE): AWS_SHARED_CREDENTIALS_FILE
+  File template — reference values as {{ .KEY }}; end with a line containing only '.':
+[default]
+aws_access_key_id={{ .AWS_ACCESS_KEY_ID }}
+aws_secret_access_key={{ .AWS_SECRET_ACCESS_KEY }}
+.
+```
+
+At materialization the file is written under `~/.cloak/run/` with mode `0600`,
+its path is injected as the named variable, and it is shredded when the
+endpoint closes, its TTL expires, or the vault locks.
+
+**Credential helper.** For the AWS CLI you can skip `cloak exec` entirely — see
+[`cloak creds`](#cloak-creds).
+
+**Security note.** Unlike the proxied types, an `env` secret's values reach the
+process you run. This is the weaker of Cloak's two tiers — see
+[Security model](#9-security-model).
+
 ---
 
 ## 6. Configuration
@@ -537,6 +647,7 @@ Everything lives under `~/.cloak/` (or `$CLOAK_HOME`).
 | `config.toml` | User config. | 0600 (recommended) | Daemon settings. |
 | `audit.log` | Audit log. | 0600 | Hash-chained JSONL. No payload content. |
 | `host_keys/` | SSH adapter host keys. | 0700 dir, 0600 keys | Generated on first SSH adapter use. |
+| `run/` | Rendered files for materialized (`env`) secrets. | 0700 dir, 0600 files | One subdirectory per open materialization. Shredded on close; the whole directory is emptied on daemon start. |
 | `cloakd.sock` | Daemon's Unix socket. | 0600 | Removed on clean shutdown. |
 | `cloakd.pid` | PID file. | 0600 | For `cloak daemon stop` / `status`. |
 | `cli_token` | CLI's bearer token (if you used `--save`). | 0600 | Plaintext token. Treat like an SSH key. |
@@ -562,6 +673,18 @@ What Cloak protects:
    every token use writes an entry to a hash-chained append-only log.
 5. **Endpoints close on lock.** Locking the vault tears down every listener
    and cancels every in-flight connection.
+
+**A weaker tier — materialized (`env`) secrets.** Properties 1 and 3 above hold
+only for *proxied* secrets (`postgres`, `mysql`, `ssh`, `http`). An `env` secret
+is *injected*, not proxied: its values reach the child process's environment,
+and any rendered file lands in `~/.cloak/run/` on disk (mode `0600`, shredded on
+close, expiry, or lock). For `env` secrets Cloak still gives you encryption at
+rest, one-place rotation, auto-lock, and an audit trail of every
+materialization — but the credential itself is visible to the process you ran,
+to anything that can read its environment, and to crash dumps of it. Use `env`
+secrets when a tool cannot be proxied; prefer a proxied type whenever one
+exists. The audit log marks the difference (`secret.materialized` events, and
+the `kind` field on endpoints).
 
 What Cloak does *not* protect against (v1 limitations, by design):
 

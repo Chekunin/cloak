@@ -2,12 +2,14 @@ package endpoints_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/Chekunin/cloak/internal/adapters"
+	"github.com/Chekunin/cloak/internal/adapters/envadapter"
 	"github.com/Chekunin/cloak/internal/adapters/httpadapter"
 	"github.com/Chekunin/cloak/internal/audit"
 	"github.com/Chekunin/cloak/internal/endpoints"
@@ -47,8 +49,9 @@ func buildEnv(t *testing.T) (*vault.Manager, *store.Store, *audit.Logger, *endpo
 	}
 	reg := adapters.NewRegistry()
 	reg.Register(httpadapter.New())
+	reg.Register(envadapter.New())
 
-	em := endpoints.NewManager(reg, v, st, au, 0)
+	em := endpoints.NewManager(reg, v, st, au, 0, filepath.Join(dir, "run"))
 	v.RegisterLockHook(func(reason vault.LockReason) { em.CloseAll(string(reason)) })
 
 	cleanup := func() {
@@ -105,6 +108,57 @@ func TestOpenIdempotentUnderConcurrency(t *testing.T) {
 	open := em.List()
 	if len(open) != 1 {
 		t.Fatalf("manager has %d active endpoints, want 1", len(open))
+	}
+}
+
+// TestOpenMaterialized verifies that opening an env secret produces a
+// listener-less endpoint that carries the real values, renders its file, and
+// shreds the file on close.
+func TestOpenMaterialized(t *testing.T) {
+	_, st, _, em, cleanup := buildEnv(t)
+	defer cleanup()
+
+	payload := []byte(`{"values":{"AWS_ACCESS_KEY_ID":"AKIA","AWS_SECRET_ACCESS_KEY":"sk"}}`)
+	cfg := map[string]any{
+		"inject_env": true,
+		"files": []any{map[string]any{
+			"basename": "credentials",
+			"path_env": "AWS_SHARED_CREDENTIALS_FILE",
+			"template": "[default]\naws_access_key_id={{ .AWS_ACCESS_KEY_ID }}\n",
+		}},
+	}
+	rec, err := st.CreateSecret("aws", store.TypeEnv, "",
+		cfg, store.EndpointConfig{Mode: store.ModeSession, SessionTTLSeconds: 60}, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	snap, err := em.Open(context.Background(), rec.Name, 0)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if snap.Kind != "materialized" {
+		t.Fatalf("kind = %q, want materialized", snap.Kind)
+	}
+	if snap.LocalAddr != "" {
+		t.Fatalf("materialized endpoint has a listener addr %q", snap.LocalAddr)
+	}
+	if snap.EnvVars["AWS_ACCESS_KEY_ID"] != "AKIA" {
+		t.Fatalf("real value not delivered: %v", snap.EnvVars)
+	}
+	filePath := snap.EnvVars["AWS_SHARED_CREDENTIALS_FILE"]
+	if filePath == "" {
+		t.Fatal("file path env var not set")
+	}
+	if _, err := os.Stat(filePath); err != nil {
+		t.Fatalf("rendered file missing: %v", err)
+	}
+
+	if err := em.Close(snap.ID); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, err := os.Stat(filePath); !os.IsNotExist(err) {
+		t.Fatalf("rendered file not shredded after close: %v", err)
 	}
 }
 

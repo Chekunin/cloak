@@ -66,7 +66,28 @@ func (s *EndpointStats) Snapshot() StatsSnapshot {
 	}
 }
 
-// ActiveEndpoint is the in-memory state for one open listener.
+// EndpointKind distinguishes a proxied endpoint (a live network listener) from
+// a materialized one (injected values, no listener). See Section 16.4.1.
+type EndpointKind int
+
+const (
+	// EndpointListener is a proxied secret with a 127.0.0.1 listener.
+	EndpointListener EndpointKind = iota
+	// EndpointMaterialized is a materialized secret: injected values, no
+	// listener.
+	EndpointMaterialized
+)
+
+// String returns the JSON-friendly name of the kind.
+func (k EndpointKind) String() string {
+	if k == EndpointMaterialized {
+		return "materialized"
+	}
+	return "listener"
+}
+
+// ActiveEndpoint is the in-memory state for one open endpoint — either a
+// proxied listener or a materialized secret.
 //
 // Fields accessed concurrently are documented inline; the rest are written
 // once at construction and read-only afterwards.
@@ -75,6 +96,7 @@ type ActiveEndpoint struct {
 	SecretID         string
 	SecretName       string
 	Type             store.SecretType
+	Kind             EndpointKind
 	Mode             store.EndpointMode
 	LocalAddr        string
 	ConnectionString string
@@ -82,6 +104,11 @@ type ActiveEndpoint struct {
 	LocalCreds       *LocalCredentials
 	OpenedAt         time.Time
 	Stats            *EndpointStats
+
+	// RunDir and FilePaths are set only for EndpointMaterialized endpoints
+	// that render files; shutdownEndpoint shreds them.
+	RunDir    string
+	FilePaths []string
 
 	// expiresAt and the expiry reset signal are read by sessionExpiryWatcher
 	// and written under Manager.mu. Refresh sends a non-blocking notify to
@@ -121,6 +148,7 @@ type EndpointSnapshot struct {
 	SecretID         string             `json:"secret_id"`
 	SecretName       string             `json:"secret_name"`
 	Type             store.SecretType   `json:"type"`
+	Kind             string             `json:"kind"`
 	Mode             store.EndpointMode `json:"mode"`
 	LocalAddr        string             `json:"local_addr"`
 	ConnectionString string             `json:"connection_string"`
@@ -137,6 +165,7 @@ func (e *ActiveEndpoint) Snapshot() EndpointSnapshot {
 		SecretID:         e.SecretID,
 		SecretName:       e.SecretName,
 		Type:             e.Type,
+		Kind:             e.Kind.String(),
 		Mode:             e.Mode,
 		LocalAddr:        e.LocalAddr,
 		ConnectionString: e.ConnectionString,

@@ -35,14 +35,26 @@ func newExecCmd() *cobra.Command {
 
 			// Open all endpoints up front.
 			env := map[string]string{}
+			envSource := map[string]string{} // env var name → secret that set it
 			openedIDs := make([]string, 0, len(names))
+			seen := map[string]bool{}
 			for _, n := range names {
+				if seen[n] {
+					continue
+				}
+				seen[n] = true
 				ep, err := cli.OpenEndpoint(ctx, n, 0)
 				if err != nil {
+					_ = closeAll(openedIDs)
 					return fmt.Errorf("open endpoint %q: %w", n, err)
 				}
 				openedIDs = append(openedIDs, ep.ID)
 				for k, v := range ep.EnvVars {
+					if prev, dup := envSource[k]; dup {
+						_ = closeAll(openedIDs)
+						return fmt.Errorf("env var %q is set by both %q and %q in --with", k, prev, n)
+					}
+					envSource[k] = n
 					env[k] = v
 				}
 			}

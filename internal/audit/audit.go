@@ -22,22 +22,26 @@ import (
 // Event types. Adding to this list is fine; renaming is a breaking change for
 // downstream log readers.
 const (
-	EventVaultUnlocked     = "vault.unlocked"
-	EventVaultLocked       = "vault.locked"
-	EventVaultAutoLocked   = "vault.auto_locked"
-	EventSecretCreated     = "secret.created"
-	EventSecretUpdated     = "secret.updated"
-	EventSecretDeleted     = "secret.deleted"
-	EventEndpointOpened    = "endpoint.opened"
-	EventEndpointClosed    = "endpoint.closed"
-	EventEndpointExpired   = "endpoint.expired"
-	EventConnOpened        = "endpoint.connection.opened"
-	EventConnClosed        = "endpoint.connection.closed"
-	EventConnUpstreamFail  = "endpoint.connection.upstream_failed"
-	EventTokenCreated      = "token.created"
-	EventTokenRevoked      = "token.revoked"
-	EventClientAuthOK      = "client.authenticated"
-	EventClientAuthFailed  = "client.auth_failed"
+	EventVaultUnlocked   = "vault.unlocked"
+	EventVaultLocked     = "vault.locked"
+	EventVaultAutoLocked = "vault.auto_locked"
+	EventSecretCreated   = "secret.created"
+	EventSecretUpdated   = "secret.updated"
+	EventSecretDeleted   = "secret.deleted"
+	EventEndpointOpened  = "endpoint.opened"
+	EventEndpointClosed  = "endpoint.closed"
+	EventEndpointExpired = "endpoint.expired"
+	// Materialized secrets (Section 16.7). Logged with variable names only —
+	// never values.
+	EventSecretMaterialized   = "secret.materialized"
+	EventSecretUnmaterialized = "secret.unmaterialized"
+	EventConnOpened           = "endpoint.connection.opened"
+	EventConnClosed           = "endpoint.connection.closed"
+	EventConnUpstreamFail     = "endpoint.connection.upstream_failed"
+	EventTokenCreated         = "token.created"
+	EventTokenRevoked         = "token.revoked"
+	EventClientAuthOK         = "client.authenticated"
+	EventClientAuthFailed     = "client.auth_failed"
 )
 
 // Client identifies the caller responsible for the event (when applicable).

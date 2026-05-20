@@ -11,6 +11,7 @@ const (
 	TypePostgres SecretType = "postgres"
 	TypeMySQL    SecretType = "mysql"
 	TypeHTTP     SecretType = "http"
+	TypeEnv      SecretType = "env"
 )
 
 // EndpointMode mirrors store.EndpointMode.
@@ -49,6 +50,7 @@ type Endpoint struct {
 	SecretID         string            `json:"secret_id"`
 	SecretName       string            `json:"secret_name"`
 	Type             SecretType        `json:"type"`
+	Kind             string            `json:"kind,omitempty"`
 	Mode             EndpointMode      `json:"mode"`
 	LocalAddr        string            `json:"local_addr"`
 	ConnectionString string            `json:"connection_string"`

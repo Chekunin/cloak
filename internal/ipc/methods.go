@@ -289,6 +289,17 @@ func secretsCreateHandler(d Deps) HandlerFunc {
 		if err := adapter.ValidateConfig(p.Config, p.Secret); err != nil {
 			return nil, errs.Wrap(errs.CodeInvalidRequest, err)
 		}
+		// Materialized secrets have no listener, so they cannot be persistent
+		// (Section 16.2.4).
+		if adapter.Kind() == adapters.KindMaterialized {
+			mode := store.ModeSession
+			if p.EndpointConfig != nil && p.EndpointConfig.Mode != "" {
+				mode = p.EndpointConfig.Mode
+			}
+			if mode == store.ModePersistent {
+				return nil, errs.Newf(errs.CodeInvalidRequest, "%s secrets cannot use persistent endpoint mode", p.Type)
+			}
+		}
 		payload, err := json.Marshal(p.Secret)
 		if err != nil {
 			return nil, errs.Wrap(errs.CodeInvalidRequest, err)

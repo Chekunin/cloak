@@ -18,14 +18,39 @@ import (
 	"github.com/Chekunin/cloak/internal/store"
 )
 
-// Adapter is the per-protocol contract.
+// AdapterKind tells the endpoint manager which lifecycle a secret type
+// follows. See Section 16.1.
+type AdapterKind int
+
+const (
+	// KindProxy adapters open a 127.0.0.1 listener and proxy a protocol. The
+	// real secret never reaches the client.
+	KindProxy AdapterKind = iota
+	// KindMaterialized adapters have no listener; they decrypt the stored
+	// values and inject them into a child process. The real secret does reach
+	// the client. This is the weaker tier.
+	KindMaterialized
+)
+
+// Adapter is the common contract every secret type implements. Concrete
+// adapters additionally implement either ProxyAdapter or MaterializingAdapter
+// depending on Kind().
 type Adapter interface {
 	Type() store.SecretType
 
+	// Kind reports whether this adapter is proxied or materialized.
+	Kind() AdapterKind
+
 	// ValidateConfig is called before persisting a new secret. It must return
 	// nil on success. config is the public, non-secret portion; secret is the
-	// secret payload (the JSON document defined in Section 3.2).
+	// secret payload (the JSON document defined in Section 3.2 / 16.2).
 	ValidateConfig(config map[string]any, secret map[string]any) error
+}
+
+// ProxyAdapter is the per-protocol contract for KindProxy adapters
+// (postgres, mysql, ssh, http).
+type ProxyAdapter interface {
+	Adapter
 
 	// ServeConnection handles a single accepted client connection. Returns
 	// when the connection closes (either side) or ctx is cancelled.
@@ -38,6 +63,37 @@ type Adapter interface {
 	// EnvVars returns env-var name/value pairs to inject for `cloak exec`.
 	// envPrefix is "<NAME>" (the secret name normalized to upper case) or "".
 	EnvVars(localAddr string, decoded DecryptedSecret, localCreds LocalCredentials, envPrefix string) map[string]string
+}
+
+// MaterializingAdapter is the contract for KindMaterialized adapters (env).
+type MaterializingAdapter interface {
+	Adapter
+
+	// Materialize decrypts the secret into the values to deliver to a child
+	// process. It does not touch the filesystem — the endpoint manager owns
+	// file writing and cleanup (Section 16.4.4).
+	Materialize(decoded DecryptedSecret) (Materialization, error)
+}
+
+// Materialization is what a MaterializingAdapter produces from a decrypted
+// secret.
+type Materialization struct {
+	// Env is the set of environment variables to inject (real secret values).
+	// May be empty when the secret only renders files.
+	Env map[string]string
+	// Files are file bodies the manager must write before returning.
+	Files []RenderedFile
+}
+
+// RenderedFile is one file the manager writes to the per-materialization run
+// directory.
+type RenderedFile struct {
+	// Basename is the file name within the run directory.
+	Basename string
+	// PathEnv, if non-empty, is an env var set to the written file's path.
+	PathEnv string
+	// Content is the file body. The manager zeroes it after writing.
+	Content *secrets.SecretBytes
 }
 
 // DecryptedSecret is passed to Adapter.ServeConnection. The Payload field

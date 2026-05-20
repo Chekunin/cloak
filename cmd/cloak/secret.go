@@ -96,7 +96,7 @@ func newSecretShowCmd() *cobra.Command {
 func newSecretAddCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add <type> <name>",
-		Short: "Add a new secret. <type> is ssh|postgres|mysql|http.",
+		Short: "Add a new secret. <type> is ssh|postgres|mysql|http|env.",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			typ := client.SecretType(args[0])
@@ -171,6 +171,9 @@ func newSecretDeleteCmd() *cobra.Command {
 
 // promptForSecret runs the interactive form for a new secret of the given type.
 func promptForSecret(typ client.SecretType, name string) (*client.CreateSecretRequest, error) {
+	if typ == client.TypeEnv {
+		return promptForEnvSecret(name)
+	}
 	description, _ := readLine("Description (optional): ")
 	mode, err := readLine("Endpoint mode [persistent/session, default persistent]: ")
 	if err != nil {
@@ -326,7 +329,95 @@ func promptForSecretPayload(typ client.SecretType) (map[string]any, error) {
 			"inject": map[string]any{"headers": headers},
 			"values": values,
 		}, nil
+	case client.TypeEnv:
+		values, err := promptForEnvValues()
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"values": values}, nil
 	default:
 		return nil, fmt.Errorf("unknown secret type %q", typ)
 	}
+}
+
+// promptForEnvSecret runs the interactive form for a materialized `env`
+// secret (Section 16.6). env secrets are always session-mode and have no
+// listener, so the form skips the mode / port / local-auth questions.
+func promptForEnvSecret(name string) (*client.CreateSecretRequest, error) {
+	description, _ := readLine("Description (optional): ")
+	fmt.Fprintln(os.Stderr, "Note: an env secret's values are injected into the child process —")
+	fmt.Fprintln(os.Stderr, "they DO reach the client. This is the weaker of Cloak's two tiers.")
+
+	values, err := promptForEnvValues()
+	if err != nil {
+		return nil, err
+	}
+	if len(values) == 0 {
+		return nil, fmt.Errorf("at least one key/value pair is required")
+	}
+
+	injectStr, _ := readLine("Inject as environment variables? [Y/n]: ")
+	injectEnv := !strings.EqualFold(strings.TrimSpace(injectStr), "n")
+	config := map[string]any{"inject_env": injectEnv}
+
+	var files []map[string]any
+	for {
+		more, _ := readLine("Render a credentials file? [y/N]: ")
+		if !strings.EqualFold(strings.TrimSpace(more), "y") {
+			break
+		}
+		basename, _ := readLine("  File basename (e.g. credentials): ")
+		pathEnv, _ := readLine("  Env var to receive the file path (e.g. AWS_SHARED_CREDENTIALS_FILE): ")
+		fmt.Fprintln(os.Stderr, "  File template — reference values as {{ .KEY }}; end with a line containing only '.':")
+		tmpl, err := readMultiline()
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, map[string]any{
+			"basename": basename, "path_env": pathEnv, "template": tmpl,
+		})
+	}
+	if len(files) > 0 {
+		config["files"] = files
+	}
+
+	ttl := 3600
+	if ttlStr, _ := readLine("Session TTL seconds [3600]: "); ttlStr != "" {
+		t, err := strconv.Atoi(ttlStr)
+		if err != nil {
+			return nil, err
+		}
+		ttl = t
+	}
+
+	return &client.CreateSecretRequest{
+		Name:        name,
+		Type:        client.TypeEnv,
+		Description: description,
+		Config:      config,
+		Secret:      map[string]any{"values": values},
+		EndpointConfig: &client.EndpointConfig{
+			Mode:              client.ModeSession,
+			SessionTTLSeconds: ttl,
+		},
+	}, nil
+}
+
+// promptForEnvValues reads a key/value bag, values entered with echo disabled.
+func promptForEnvValues() (map[string]string, error) {
+	fmt.Fprintln(os.Stderr, "Enter key/value pairs (the key is the environment variable name).")
+	fmt.Fprintln(os.Stderr, "Blank key to finish.")
+	values := map[string]string{}
+	for {
+		key, _ := readLine("Key: ")
+		if key == "" {
+			break
+		}
+		val, err := readPassword(fmt.Sprintf("Value for %s: ", key), false)
+		if err != nil {
+			return nil, err
+		}
+		values[key] = val
+	}
+	return values, nil
 }

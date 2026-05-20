@@ -5,6 +5,11 @@ local vault and exposes them to applications and AI agents as **local network
 endpoints** that speak the native protocol (Postgres wire, MySQL wire, SSH,
 HTTP). The real secret never reaches the client.
 
+For CLI tools that can't be proxied this way — the AWS CLI, `gcloud`,
+`kubectl`, `terraform`, and the like — the `env` secret type injects stored
+credentials into a child process instead. See the
+[user manual](./MANUAL.md#env) for the trade-offs.
+
 This repository contains the **v1** implementation written in Go. See
 [`cloak-architecture.md`](./cloak-architecture.md) for the full design
 specification.

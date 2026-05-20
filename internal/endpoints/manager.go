@@ -12,6 +12,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -45,11 +47,13 @@ type Manager struct {
 	store            *store.Store
 	audit            *audit.Logger
 	defaultPortStart int
+	runDir           string
 }
 
 // NewManager constructs a Manager. defaultPortStart is the lowest port used
 // for persistent endpoints whose secret config does not specify a port.
-func NewManager(reg *adapters.Registry, v *vault.Manager, s *store.Store, a *audit.Logger, defaultPortStart int) *Manager {
+// runDir is the directory under which materialized endpoints render files.
+func NewManager(reg *adapters.Registry, v *vault.Manager, s *store.Store, a *audit.Logger, defaultPortStart int, runDir string) *Manager {
 	return &Manager{
 		active:           map[string]*ActiveEndpoint{},
 		bySecret:         map[string]string{},
@@ -59,6 +63,7 @@ func NewManager(reg *adapters.Registry, v *vault.Manager, s *store.Store, a *aud
 		store:            s,
 		audit:            a,
 		defaultPortStart: defaultPortStart,
+		runDir:           runDir,
 	}
 }
 
@@ -139,6 +144,14 @@ func (m *Manager) Open(ctx context.Context, secretIDOrName string, ttlOverrideSe
 
 	startGen := m.snapshotCloseGen()
 
+	if adapter.Kind() == adapters.KindMaterialized {
+		return m.openMaterialized(ctx, rec, adapter, ttlOverrideSeconds, startGen)
+	}
+	proxy, ok := adapter.(adapters.ProxyAdapter)
+	if !ok {
+		return EndpointSnapshot{}, errs.New(errs.CodeAdapterError, "adapter does not support proxying")
+	}
+
 	port := 0
 	if rec.EndpointConfig.Mode == store.ModePersistent {
 		port = rec.EndpointConfig.PersistentPort
@@ -174,6 +187,7 @@ func (m *Manager) Open(ctx context.Context, secretIDOrName string, ttlOverrideSe
 		SecretID:    rec.ID,
 		SecretName:  rec.Name,
 		Type:        rec.Type,
+		Kind:        EndpointListener,
 		Mode:        rec.EndpointConfig.Mode,
 		LocalAddr:   ln.Addr().String(),
 		LocalCreds:  creds,
@@ -193,9 +207,9 @@ func (m *Manager) Open(ctx context.Context, secretIDOrName string, ttlOverrideSe
 		Config: rec.Config,
 	}
 	aCreds := toAdapterCreds(creds)
-	ep.ConnectionString = adapter.ConnectionString(ep.LocalAddr, dec, aCreds)
+	ep.ConnectionString = proxy.ConnectionString(ep.LocalAddr, dec, aCreds)
 	envPrefix := normalizeEnvPrefix(rec.Name)
-	ep.EnvVars = adapter.EnvVars(ep.LocalAddr, dec, aCreds, envPrefix)
+	ep.EnvVars = proxy.EnvVars(ep.LocalAddr, dec, aCreds, envPrefix)
 
 	// Atomic insert under write lock. Two failure modes we must avoid:
 	//  1. A CloseAll fired after we captured startGen and cleared `active`.
@@ -228,7 +242,7 @@ func (m *Manager) Open(ctx context.Context, secretIDOrName string, ttlOverrideSe
 	m.bySecret[rec.ID] = endpointID
 	m.mu.Unlock()
 
-	go m.acceptLoop(ep, adapter, rec)
+	go m.acceptLoop(ep, proxy, rec)
 	if !expiresAt.IsZero() {
 		go m.sessionExpiryWatcher(ep)
 	}
@@ -341,7 +355,7 @@ func (m *Manager) snapshotCloseGen() uint64 {
 
 func (m *Manager) snapshotCloseGenLocked() uint64 { return m.closeGen }
 
-func (m *Manager) acceptLoop(ep *ActiveEndpoint, adapter adapters.Adapter, rec *store.SecretRecord) {
+func (m *Manager) acceptLoop(ep *ActiveEndpoint, adapter adapters.ProxyAdapter, rec *store.SecretRecord) {
 	maxConns := rec.EndpointConfig.MaxConcurrentConnections
 	if maxConns <= 0 {
 		maxConns = 16
@@ -392,7 +406,7 @@ func (m *Manager) acceptLoop(ep *ActiveEndpoint, adapter adapters.Adapter, rec *
 	}
 }
 
-func (m *Manager) handleConn(ep *ActiveEndpoint, adapter adapters.Adapter, conn net.Conn) {
+func (m *Manager) handleConn(ep *ActiveEndpoint, adapter adapters.ProxyAdapter, conn net.Conn) {
 	defer conn.Close()
 	material, err := m.store.DecryptSecret(ep.SecretID)
 	if err != nil {
@@ -486,9 +500,22 @@ func (m *Manager) sessionExpiryWatcher(ep *ActiveEndpoint) {
 
 func (m *Manager) shutdownEndpoint(ep *ActiveEndpoint, reason string) {
 	ep.cancel()
-	_ = ep.listener.Close()
+	if ep.listener != nil {
+		_ = ep.listener.Close()
+	}
 	if ep.LocalCreds != nil {
 		ep.LocalCreds.Zero()
+	}
+	if ep.Kind == EndpointMaterialized {
+		shredFiles(ep)
+		_ = m.audit.Write(audit.Entry{
+			Event:      audit.EventSecretUnmaterialized,
+			EndpointID: ep.EndpointID,
+			SecretID:   ep.SecretID,
+			SecretName: ep.SecretName,
+			Details:    map[string]any{"reason": reason},
+		})
+		return
 	}
 	_ = m.audit.Write(audit.Entry{
 		Event:      audit.EventEndpointClosed,
@@ -502,6 +529,166 @@ func (m *Manager) shutdownEndpoint(ep *ActiveEndpoint, reason string) {
 			"connections_total": ep.Stats.ConnectionsTotal.Load(),
 		},
 	})
+}
+
+// openMaterialized opens an endpoint for a KindMaterialized secret (Section
+// 16.4.2). It decrypts the secret, asks the adapter to materialize it, writes
+// any rendered files, and registers a listener-less ActiveEndpoint.
+func (m *Manager) openMaterialized(ctx context.Context, rec *store.SecretRecord, adapter adapters.Adapter, ttlOverrideSeconds int, startGen uint64) (EndpointSnapshot, error) {
+	madapter, ok := adapter.(adapters.MaterializingAdapter)
+	if !ok {
+		return EndpointSnapshot{}, errs.New(errs.CodeAdapterError, "adapter does not support materialization")
+	}
+
+	material, err := m.store.DecryptSecret(rec.ID)
+	if err != nil {
+		return EndpointSnapshot{}, err
+	}
+	mat, err := madapter.Materialize(adapters.DecryptedSecret{
+		ID:      rec.ID,
+		Name:    rec.Name,
+		Type:    rec.Type,
+		Config:  rec.Config,
+		Payload: material.Payload,
+	})
+	material.Payload.Zero()
+	if err != nil {
+		return EndpointSnapshot{}, errs.Wrap(errs.CodeAdapterError, err)
+	}
+
+	endpointID := ulid.Make().String()
+	openedAt := time.Now().UTC()
+	ttl := rec.EndpointConfig.SessionTTLSeconds
+	if ttlOverrideSeconds > 0 {
+		ttl = ttlOverrideSeconds
+	}
+	if ttl <= 0 {
+		ttl = 3600
+	}
+	expiresAt := openedAt.Add(time.Duration(ttl) * time.Second)
+
+	env := mat.Env
+	if env == nil {
+		env = map[string]string{}
+	}
+	epCtx, cancel := context.WithCancel(ctx)
+	ep := &ActiveEndpoint{
+		EndpointID:  endpointID,
+		SecretID:    rec.ID,
+		SecretName:  rec.Name,
+		Type:        rec.Type,
+		Kind:        EndpointMaterialized,
+		Mode:        store.ModeSession,
+		EnvVars:     env,
+		OpenedAt:    openedAt,
+		expiresAt:   expiresAt,
+		expiryReset: make(chan struct{}, 1),
+		Stats:       &EndpointStats{},
+		ctx:         epCtx,
+		cancel:      cancel,
+	}
+
+	// Write rendered files to a per-materialization 0700 run directory; the
+	// manager owns their lifecycle and shreds them on close (Section 16.4.4).
+	if len(mat.Files) > 0 {
+		ep.RunDir = filepath.Join(m.runDir, endpointID)
+		if err := os.MkdirAll(ep.RunDir, 0o700); err != nil {
+			cancel()
+			zeroFiles(mat.Files)
+			return EndpointSnapshot{}, errs.Wrap(errs.CodeInternalError, err)
+		}
+		for _, f := range mat.Files {
+			abs := filepath.Join(ep.RunDir, f.Basename)
+			werr := os.WriteFile(abs, f.Content.Bytes(), 0o600)
+			f.Content.Zero()
+			if werr != nil {
+				cancel()
+				zeroFiles(mat.Files)
+				shredFiles(ep)
+				return EndpointSnapshot{}, errs.Wrap(errs.CodeInternalError, werr)
+			}
+			ep.FilePaths = append(ep.FilePaths, abs)
+			if f.PathEnv != "" {
+				env[f.PathEnv] = abs
+			}
+		}
+	}
+
+	// Atomic insert with the same close-generation / vault-state guard the
+	// listener path uses, so a concurrent CloseAll does not leave files behind.
+	m.mu.Lock()
+	if m.snapshotCloseGenLocked() != startGen || m.vault.State() != vault.StateUnlocked {
+		m.mu.Unlock()
+		cancel()
+		shredFiles(ep)
+		return EndpointSnapshot{}, errs.New(errs.CodeVaultLocked, "vault was locked during Open")
+	}
+	if existing, ok := m.bySecret[rec.ID]; ok {
+		ep2 := m.active[existing]
+		m.mu.Unlock()
+		cancel()
+		shredFiles(ep)
+		if ep2 != nil {
+			return ep2.Snapshot(), nil
+		}
+		return EndpointSnapshot{}, errs.New(errs.CodeEndpointError, "concurrent open race")
+	}
+	m.active[endpointID] = ep
+	m.bySecret[rec.ID] = endpointID
+	m.mu.Unlock()
+
+	m.store.MarkUsed(rec.ID)
+	m.vault.Touch()
+	go m.sessionExpiryWatcher(ep)
+
+	_ = m.audit.Write(audit.Entry{
+		Event:      audit.EventSecretMaterialized,
+		SecretID:   rec.ID,
+		SecretName: rec.Name,
+		EndpointID: endpointID,
+		Details: map[string]any{
+			"env_var_names": sortedKeys(env),
+			"files":         ep.FilePaths,
+			"ttl_seconds":   ttl,
+		},
+	})
+	return ep.Snapshot(), nil
+}
+
+// shredFiles overwrites and removes an endpoint's rendered files and its run
+// directory. Safe to call on an endpoint that rendered no files.
+func shredFiles(ep *ActiveEndpoint) {
+	for _, p := range ep.FilePaths {
+		if fi, err := os.Stat(p); err == nil && fi.Size() > 0 {
+			if f, err := os.OpenFile(p, os.O_WRONLY, 0); err == nil {
+				_, _ = f.Write(make([]byte, fi.Size()))
+				_ = f.Sync()
+				_ = f.Close()
+			}
+		}
+		_ = os.Remove(p)
+	}
+	if ep.RunDir != "" {
+		_ = os.RemoveAll(ep.RunDir)
+	}
+}
+
+// zeroFiles scrubs the in-memory content of rendered files not yet written.
+func zeroFiles(files []adapters.RenderedFile) {
+	for _, f := range files {
+		if f.Content != nil {
+			f.Content.Zero()
+		}
+	}
+}
+
+func sortedKeys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (m *Manager) allocatePort() int {

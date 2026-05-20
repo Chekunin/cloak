@@ -17,6 +17,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/Chekunin/cloak/internal/adapters"
+	"github.com/Chekunin/cloak/internal/adapters/envadapter"
 	"github.com/Chekunin/cloak/internal/adapters/httpadapter"
 	"github.com/Chekunin/cloak/internal/adapters/mysql"
 	"github.com/Chekunin/cloak/internal/adapters/postgres"
@@ -90,8 +91,13 @@ func run() error {
 	registry.Register(postgres.New())
 	registry.Register(mysql.New())
 	registry.Register(sshadapter.New(cfg.SSH.HostKeyDir))
+	registry.Register(envadapter.New())
 
-	em := endpoints.NewManager(registry, v, st, auditLog, cfg.Endpoints.DefaultPersistentPortStart)
+	// Materialized-secret run directory: any contents are stale from a
+	// previous run (Section 16.4.4).
+	_ = os.RemoveAll(p.RunDir())
+
+	em := endpoints.NewManager(registry, v, st, auditLog, cfg.Endpoints.DefaultPersistentPortStart, p.RunDir())
 	v.RegisterLockHook(func(reason vault.LockReason) {
 		em.CloseAll(string(reason))
 	})

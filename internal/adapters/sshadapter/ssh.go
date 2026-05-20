@@ -38,6 +38,9 @@ func New(hostKeyDir string) *Adapter { return &Adapter{hostKeyDir: hostKeyDir} }
 // Type returns store.TypeSSH.
 func (a *Adapter) Type() store.SecretType { return store.TypeSSH }
 
+// Kind reports that SSH is a proxied adapter.
+func (a *Adapter) Kind() adapters.AdapterKind { return adapters.KindProxy }
+
 // Config is the non-secret portion.
 type Config struct {
 	Host               string `json:"host"`
