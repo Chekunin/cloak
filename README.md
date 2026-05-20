@@ -1,48 +1,64 @@
 # Cloak
 
-**Use your credentials without ever exposing them.**
-
-Cloak is a local secret broker. It keeps your real credentials in an encrypted
-vault and hands them to your apps, scripts, and AI agents through local
-endpoints — so the secret itself never lands in a `.env` file, your shell
-history, or an AI agent's context window.
+**Let your AI assistant use your passwords and API keys — without ever seeing them.**
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
 ![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8?logo=go&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 ![Status](https://img.shields.io/badge/status-v1-success)
 
+Cloak keeps your real credentials in an encrypted vault on your computer, and
+lets your apps and AI coding tools *use* them without ever *seeing* them.
+
 ---
 
-## Why Cloak exists
+## The problem
 
-Secrets leak through the cracks of everyday development:
+More and more, software gets built with an AI assistant — Claude Code, Cursor,
+Copilot — writing and running the code for you.
 
-- **`.env` files** get committed to Git, copied between projects, and pasted into chat.
-- **AI coding agents** that can read your filesystem can read every credential in it.
-- **Rotating a credential** means hunting it down across every `.env`, CI config, and teammate's laptop.
+But to do anything real, that AI needs your credentials: the database
+password, the API key, the cloud login. So they end up somewhere the AI can
+read them — a `.env` file, a config file, or pasted straight into the chat.
 
-The root problem is that the secret is *sitting in plaintext* wherever it's
-used. Cloak removes it from those places. Your `.env` holds a reference to a
-local endpoint on `127.0.0.1`; the real credential stays encrypted in the
-vault. Your tools connect exactly as before — they just never see the secret.
+The moment a secret sits there in plain text, it can leak:
 
-```dotenv
-# Before — the real password is right there, in plaintext
-DATABASE_URL=postgres://admin:S3cr3t-Pa55w0rd@db.prod.example.com:5432/app
+- the AI reads it, and it flows into its context window and logs;
+- it gets committed to GitHub by accident;
+- it's left behind in a file you later share or screenshot.
 
-# After — a local endpoint with a throwaway password; the real one stays in the vault
-DATABASE_URL=postgres://cloak:ephemeral-local-pw@127.0.0.1:54200/app
+A credential that something else can read is a credential that can get out.
+
+## What Cloak does
+
+Cloak locks your real credentials in an encrypted vault and gives everything
+else a **safe stand-in**.
+
+Your app — or your AI assistant — connects to a local address on your own
+machine (`127.0.0.1`) using a throwaway password. Cloak quietly swaps in the
+real credential behind the scenes and connects to the actual database, API, or
+server. Everything works exactly as before.
+
+The real secret never leaves the vault. It can't reach the AI's context, its
+logs, your shell history, or a `.env` file — because it was never there.
+
+```
+Before:      DATABASE_URL = postgres://admin:S3cr3t-Pa55w0rd@db.example.com:5432/app
+With Cloak:  DATABASE_URL = postgres://cloak:throwaway-password@127.0.0.1:54200/app
 ```
 
+Your AI assistant gets the second line. The first one — your real password —
+stays locked in the vault.
+
 ---
 
-## How it works
+## How it works (the curious can read on; everyone else can skip ahead)
 
-Cloak runs a small daemon. For each stored credential it opens a local
-listener that speaks that credential's **native protocol**. Your client
-connects to `127.0.0.1` with a throwaway local password; Cloak decrypts the
-real credential, authenticates upstream with it, and proxies the traffic.
+Cloak runs a small background program — the *daemon*. For each credential you
+store, it opens a local listener that speaks that credential's **native
+protocol**. A client connects to `127.0.0.1` with a throwaway password; Cloak
+decrypts the real credential, authenticates upstream with it, and proxies the
+traffic.
 
 ```
   client                       Cloak daemon                  upstream service
@@ -54,7 +70,7 @@ real credential, authenticates upstream with it, and proxies the traffic.
 
       │  1. connect to 127.0.0.1   │                              │
       ├───────────────────────────▶│  2. decrypt the credential   │
-      │     throwaway password     │     into mlock'd memory      │
+      │     throwaway password     │     into protected memory    │
       │                            ├─────────────────────────────▶│
       │                            │  3. authenticate upstream    │
       │◀───────────────────────────┼──────────────────────────────┤
@@ -62,44 +78,27 @@ real credential, authenticates upstream with it, and proxies the traffic.
 ```
 
 Nothing about your tooling changes — `psql`, `curl`, `ssh`, DBeaver, JDBC,
-your app's database driver all connect the way they always have. Every
-connection is recorded in an append-only audit log.
+your app's database driver all connect the way they always have. And every
+connection is written to a tamper-evident audit log, so you can see exactly
+what used which secret, and when.
 
 ---
 
-## Features
+## Get started
 
-**Five secret types**
+### The easy way — the desktop app (macOS)
 
-| Type | What it does |
-|---|---|
-| `postgres` · `mysql` | Wire-protocol proxies — works with `psql`, `pgx`, JDBC, ORMs, GUI clients. |
-| `ssh` | Password or private-key auth, SFTP, `ssh -L` forwarding, pinned upstream host keys. |
-| `http` | Reverse proxy that injects headers / query params — keep an API key out of your code. |
-| `env` | Injects credentials into CLI tools that can't be proxied — AWS CLI, `gcloud`, `kubectl`, `terraform`. |
+1. Download the latest `Cloak.dmg` from the
+   [**Releases page**](https://github.com/Chekunin/cloak/releases).
+2. Open it and drag **Cloak** into Applications.
+3. Launch it, set a master password, and add your first secret — all
+   point-and-click. No terminal.
 
-**Security by design**
+The app runs everything for you in the background.
 
-- Credentials are encrypted at rest with **XChaCha20-Poly1305**; the key is derived from your master password with **Argon2id**.
-- The master password is **never persisted** — not to disk, not anywhere.
-- Decrypted secrets live in **`mlock`-pinned memory** only for the lifetime of a connection, then they're zeroed.
-- An **append-only, hash-chained audit log** records every secret access — tampering is detectable.
-- The vault **auto-locks** after a period of inactivity, tearing down every endpoint.
+### The command line — for developers
 
-**Built for real workflows**
-
-- **Persistent endpoints** for `.env`-style use, **session endpoints** (TTL-bounded) for scripts and agent sessions.
-- `cloak exec` runs any command with credentials wired into its environment; `cloak connect` opens the right native client for you.
-- A **desktop app** (macOS) with a one-click "Run" screen and a built-in updater — no terminal required.
-- Pure Go, **no CGo** — single static binaries that cross-compile cleanly.
-
----
-
-## Install
-
-### CLI + daemon (from source)
-
-Requires **Go 1.25+**.
+Build the two binaries (requires **Go 1.25+**):
 
 ```bash
 git clone https://github.com/Chekunin/cloak
@@ -109,81 +108,79 @@ CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ./bin/cloak  ./cmd/cloak
 export PATH="$PWD/bin:$PATH"
 ```
 
-### Desktop app (macOS)
-
-Download the latest `.dmg` from the
-[Releases page](https://github.com/Chekunin/cloak/releases), drag **Cloak**
-into Applications, and open it. The app bundles and starts the daemon for you.
-
----
-
-## Quick start
+Then the five-minute loop:
 
 ```bash
-cloak daemon start                   # start the background daemon
-cloak init                           # create the vault, set a master password
-cloak unlock                         # unlock it
+cloak daemon start                       # start the background daemon
+cloak init                               # create the vault, set a master password
+cloak unlock                             # unlock it
 cloak token create --name shell --save   # issue this shell a client token
-cloak secret add postgres prod-db    # interactive prompt for connection details
-cloak connect prod-db                # opens psql against the local endpoint
+cloak secret add postgres prod-db        # interactive prompt for connection details
+cloak connect prod-db                    # opens psql against the local endpoint
 ```
 
-When you're done:
-
-```bash
-cloak lock                           # zero the key, close every endpoint
-```
-
-That's the whole loop. The [**user manual**](./MANUAL.md) is the full reference.
+The [**user manual**](./MANUAL.md) is the complete reference.
 
 ---
 
-## Usage by example
+## What you can store
 
-**Run an app with a database URL wired in — no secret in the environment file:**
+| Type | What it's for |
+|---|---|
+| `postgres` · `mysql` | Databases — works with `psql`, `pgx`, JDBC, ORMs, GUI clients. |
+| `ssh` | Servers — password or key auth, SFTP, port forwarding, pinned host keys. |
+| `http` | APIs — injects an API key into requests, so it stays out of your code. |
+| `env` | CLI tools that can't be proxied — the AWS CLI, `gcloud`, `kubectl`, `terraform`. |
+
+---
+
+## Examples
+
+**Run your app with a database URL wired in — no password in the `.env` file:**
 
 ```bash
 cloak exec --with prod-db -- ./my-app
-# my-app sees DATABASE_URL=postgresql://...@127.0.0.1:54200/app
 ```
 
-**Call a paid API without the key ever touching your code or your shell:**
+**Let an API be called without the key ever touching the code or the shell:**
 
 ```bash
-cloak secret add http stripe-api          # store the key + an injection rule
 cloak exec --with stripe-api -- \
   curl -H "Authorization: Bearer $STRIPE_API_TOKEN" "$STRIPE_API_URL/v1/customers"
 # curl sends a local token; Cloak swaps in the real Stripe key upstream
 ```
 
-**Use the AWS CLI with managed credentials:**
+**Give a tool your cloud credentials, scoped to one command:**
 
 ```bash
-cloak secret add env aws-prod              # store AWS_ACCESS_KEY_ID, etc.
 cloak exec --with aws-prod -- aws s3 ls
 ```
 
-See [`MANUAL.md`](./MANUAL.md) for per-type recipes (Postgres, MySQL, SSH, HTTP, Env).
+In each case, whatever runs after `--` — your app, a script, an AI agent's
+command — does its job with credentials it never actually receives. See
+[`MANUAL.md`](./MANUAL.md) for per-type recipes.
 
 ---
 
-## Security model
+## Security
 
-Cloak is precise about what it does and does not protect — read this before you rely on it.
+Cloak is precise about what it does and does not protect — worth reading
+before you rely on it.
 
 **What Cloak protects**
 
-1. Real credentials never reach the client — your app, your shell, your AI agent see only `127.0.0.1` and a throwaway password.
-2. No plaintext credentials on disk outside the AEAD-encrypted vault.
-3. Decrypted material is minimised in memory and zeroed after use.
-4. Every connection and secret operation is auditable.
-5. Locking the vault closes every endpoint immediately.
+- Real credentials never reach the client — your app, your shell, your AI agent see only `127.0.0.1` and a throwaway password.
+- Credentials are encrypted at rest with **XChaCha20-Poly1305**; the key is derived from your master password with **Argon2id**.
+- The master password is **never written anywhere** — not to disk, not to a config file.
+- Decrypted secrets live in **`mlock`-pinned memory** only for the lifetime of a connection, then they're zeroed.
+- Every secret access is recorded in an **append-only, hash-chained audit log** — tampering is detectable.
+- The vault **auto-locks** after inactivity, closing every endpoint.
 
 **What it does not protect against (by design, in v1)**
 
-- A **compromised daemon process or user account** — anything that can read the daemon's memory defeats at-rest protection.
-- **Per-operation policy** — v1 access is binary: an endpoint is open or it isn't. Per-statement / per-request policy is on the roadmap.
-- The **`env` secret type is a deliberately weaker tier** — its values *are* injected into the child process, so the secret reaches that process. Use it only for tools that can't be proxied; prefer a proxied type when one exists.
+- A **compromised computer or user account** — anything that can read the daemon's memory defeats at-rest protection.
+- **Per-operation rules** — v1 access is all-or-nothing: an endpoint is open, or it isn't. Per-query / per-request policy is on the roadmap.
+- The **`env` secret type is a deliberately weaker tier** — its values *are* handed to the program you run, so that program does see the secret. Use it only for tools that can't be proxied; prefer a proxied type when one exists.
 
 The cryptography uses standard, well-reviewed primitives (XChaCha20-Poly1305,
 Argon2id, `crypto/rand`). The codebase has **not** had an external security
@@ -211,14 +208,18 @@ pkg/client     Go client library for the daemon's JSON-RPC API
 apps/cloak-gui the desktop app (Tauri 2 + Svelte 5)
 ```
 
+Pure Go, no CGo — the daemon and CLI are single static binaries that
+cross-compile cleanly.
+
 ---
 
 ## Project status
 
 Cloak is at **v1**: functional and usable, and under active development. The
 design is documented in full in [`cloak-architecture.md`](./cloak-architecture.md),
-which also lays out what comes next — per-operation policy, an MCP server for
-AI agents, and team secret sharing.
+which also lays out what comes next — per-operation policy, a Model Context
+Protocol (MCP) server so AI agents can manage secrets directly, and team
+secret sharing.
 
 ---
 
