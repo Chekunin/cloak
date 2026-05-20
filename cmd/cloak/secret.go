@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -16,6 +17,7 @@ func newSecretCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "secret", Short: "Manage stored secrets"}
 	cmd.AddCommand(newSecretListCmd())
 	cmd.AddCommand(newSecretShowCmd())
+	cmd.AddCommand(newSecretRevealCmd())
 	cmd.AddCommand(newSecretAddCmd())
 	cmd.AddCommand(newSecretRotateCmd())
 	cmd.AddCommand(newSecretDeleteCmd())
@@ -90,6 +92,67 @@ func newSecretShowCmd() *cobra.Command {
 			})
 			return nil
 		},
+	}
+}
+
+func newSecretRevealCmd() *cobra.Command {
+	var fromStdin bool
+	cmd := &cobra.Command{
+		Use:   "reveal <name>",
+		Short: "Decrypt and print secret material (requires the master password)",
+		Long: "Decrypt and print the stored secret material for a secret.\n\n" +
+			"Unlike `secret show`, this prints the real credential. It re-checks\n" +
+			"the vault master password first — a client token alone is not enough.\n" +
+			"Every reveal is recorded in the audit log.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cli, _, ctx, cancel, err := dialBackground(true)
+			if err != nil {
+				return err
+			}
+			defer cancel()
+			defer cli.Close()
+			pw, err := readPassword("Master password: ", fromStdin)
+			if err != nil {
+				return err
+			}
+			revealed, err := cli.RevealSecret(ctx, args[0], pw)
+			if err != nil {
+				return err
+			}
+			emit(revealed, func() {
+				fmt.Printf("Name:  %s\n", revealed.Name)
+				fmt.Printf("Type:  %s\n", revealed.Type)
+				if len(revealed.Config) > 0 {
+					fmt.Println("Config:")
+					printSecretTree("  ", revealed.Config)
+				}
+				fmt.Println("Secret:")
+				printSecretTree("  ", revealed.Secret)
+			})
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&fromStdin, "from-stdin", false,
+		"read the master password from the first line of stdin")
+	return cmd
+}
+
+// printSecretTree prints a decrypted secret payload, sorting keys for stable
+// output and indenting nested maps.
+func printSecretTree(indent string, m map[string]any) {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if nested, ok := m[k].(map[string]any); ok {
+			fmt.Printf("%s%s:\n", indent, k)
+			printSecretTree(indent+"  ", nested)
+			continue
+		}
+		fmt.Printf("%s%s: %v\n", indent, k, m[k])
 	}
 }
 

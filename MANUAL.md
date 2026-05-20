@@ -210,6 +210,7 @@ be recovered. Cloak does not implement password reset.
 |---|---|
 | `cloak secret list` | List stored secrets (metadata only — no credentials). |
 | `cloak secret show <name>` | Show full metadata + non-secret config for one secret. |
+| `cloak secret reveal <name>` | Decrypt and print the secret material. Prompts for the master password. |
 | `cloak secret add <type> <name>` | Interactive prompt to add a new secret. `<type>` is `postgres`, `mysql`, `ssh`, `http`, or `env`. |
 | `cloak secret rotate <name>` | Replace just the secret material (password, key) — config is left alone. |
 | `cloak secret delete <name>` | Remove the secret. Any open endpoint for it is closed first. |
@@ -219,6 +220,14 @@ on a TTY with echo disabled, or read from stdin via `--from-stdin`.
 
 The vault must be unlocked for any `secret` subcommand. `secret list` and
 `secret show` never decrypt the payload — they only return metadata.
+
+`secret reveal` is the one command that does decrypt and print the stored
+credential — so Cloak can double as an everyday password manager. It is
+deliberately gated: the daemon re-checks the **master password** before
+decrypting (a client token alone — which an AI agent also holds — is not
+enough), and every reveal is recorded in the audit log. Pass `--from-stdin`
+to supply the master password non-interactively. The same gate backs the
+**Reveal** button in the desktop app.
 
 ### `cloak endpoint`
 
@@ -358,6 +367,7 @@ Event types you'll see:
 
 - `vault.unlocked`, `vault.locked`, `vault.auto_locked`
 - `secret.created`, `secret.updated`, `secret.deleted`
+- `secret.revealed`, `secret.reveal_denied` (decrypt-and-show; denied = wrong master password)
 - `secret.materialized`, `secret.unmaterialized` (for `env` secrets)
 - `endpoint.opened`, `endpoint.closed`, `endpoint.expired`
 - `endpoint.connection.opened`, `endpoint.connection.closed`,
@@ -686,6 +696,16 @@ secrets when a tool cannot be proxied; prefer a proxied type whenever one
 exists. The audit log marks the difference (`secret.materialized` events, and
 the `kind` field on endpoints).
 
+**A deliberate exception — `secret reveal`.** Property 1 says credentials never
+reach the client. The one intended exception is `cloak secret reveal` (and the
+desktop app's **Reveal** button), which decrypts and shows the stored credential
+so Cloak can serve as a password manager. It is gated so it cannot become an
+agent-reachable hole: the daemon re-checks the **master password** before
+decrypting — a client token alone is not enough, and an AI agent does not hold
+the master password — and every reveal (and every failed attempt) is written to
+the audit log. Reveal hands plaintext to whatever process asked for it, so use
+it from a human-facing client (the CLI, the GUI), not an automated one.
+
 What Cloak does *not* protect against (v1 limitations, by design):
 
 - **A compromised daemon process.** If an attacker can inject code into the
@@ -800,6 +820,13 @@ host works, because the local endpoint speaks the real protocol.
 
 **Can two machines share a vault?**
 Not in v1. The vault is local. Team profile distribution is v3.0.
+
+**Can I use Cloak as a plain password manager?**
+Yes. Store any credential as a secret, and read it back when you need it with
+`cloak secret reveal <name>` or the desktop app's **Reveal** button. Reveal
+re-checks your master password and is audit-logged, so the encrypted-at-rest,
+one-place-rotation, and auto-lock guarantees apply to passwords you just want
+to *keep* — not only ones Cloak proxies.
 
 **Can I script `cloak init` / `unlock` non-interactively?**
 Yes, with `--from-stdin`. Use this carefully — anything that puts a

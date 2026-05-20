@@ -211,6 +211,36 @@ func (m *Manager) Unlock(password *secrets.SecretBytes) error {
 	return nil
 }
 
+// VerifyPassword reports whether password is the vault's master password. It
+// derives the KEK and attempts to unwrap the DEK, but — unlike Unlock — keeps
+// no derived key and does not change the lock state or the idle timer.
+//
+// It is the re-authentication gate for sensitive operations such as revealing
+// decrypted secret material: a client token alone must not be enough, since
+// the GUI and an AI agent authenticate the same way. The master password is
+// the one thing an agent does not hold.
+func (m *Manager) VerifyPassword(password *secrets.SecretBytes) error {
+	m.mu.RLock()
+	state := m.state
+	meta := m.meta
+	m.mu.RUnlock()
+
+	if state == StateUninitialized || meta == nil {
+		return errs.New(errs.CodeVaultNotInitialized, "vault is not initialized")
+	}
+	kek, err := DeriveKEK(password, meta.KDF)
+	if err != nil {
+		return errs.Wrap(errs.CodeInternalError, err)
+	}
+	defer kek.Zero()
+	dek, err := unwrapDEK(kek.Bytes(), meta.WrappedDEK)
+	if err != nil {
+		return errs.New(errs.CodeUnauthorized, "incorrect master password")
+	}
+	dek.Zero()
+	return nil
+}
+
 // Lock zeros the DEK, transitions to Locked, and fires all lock hooks.
 // Passing reason=LockReasonShutdown is appropriate during daemon shutdown.
 func (m *Manager) Lock(reason LockReason) {

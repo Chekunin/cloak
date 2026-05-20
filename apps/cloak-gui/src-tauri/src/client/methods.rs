@@ -18,8 +18,8 @@ use serde_json::{json, Value};
 use super::error::Result;
 use super::transport::Transport;
 use super::types::{
-    AuditEntry, CreateSecretRequest, Endpoint, Secret, Token, TokenInfo, UpdateSecretRequest,
-    VaultStatus,
+    AuditEntry, CreateSecretRequest, Endpoint, RevealedSecret, Secret, Token, TokenInfo,
+    UpdateSecretRequest, VaultStatus,
 };
 
 /// Convenience trait so we can write `transport.list_secrets()` rather than
@@ -76,6 +76,16 @@ impl Transport {
     pub async fn get_secret(&self, id_or_name: &str) -> Result<Secret> {
         let v = self
             .call("secrets.get", &json!({ "id_or_name": id_or_name }))
+            .await?;
+        decode(v)
+    }
+
+    pub async fn reveal_secret(&self, id_or_name: &str, password: &str) -> Result<RevealedSecret> {
+        let v = self
+            .call(
+                "secrets.reveal",
+                &json!({ "id_or_name": id_or_name, "password": password }),
+            )
             .await?;
         decode(v)
     }

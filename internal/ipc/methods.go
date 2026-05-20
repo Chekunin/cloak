@@ -41,6 +41,7 @@ func RegisterAll(s *Server, deps Deps) {
 	// Secrets.
 	s.Register("secrets.list", secretsListHandler(deps), true)
 	s.Register("secrets.get", secretsGetHandler(deps), true)
+	s.Register("secrets.reveal", secretsRevealHandler(deps), true)
 	s.Register("secrets.create", secretsCreateHandler(deps), true)
 	s.Register("secrets.update", secretsUpdateHandler(deps), true)
 	s.Register("secrets.delete", secretsDeleteHandler(deps), true)
@@ -113,6 +114,11 @@ type secretsDeleteParams struct {
 
 type secretsGetParams struct {
 	IDOrName string `json:"id_or_name"`
+}
+
+type secretsRevealParams struct {
+	IDOrName string `json:"id_or_name"`
+	Password string `json:"password"`
 }
 
 type endpointOpenParams struct {
@@ -270,6 +276,78 @@ func secretsGetHandler(d Deps) HandlerFunc {
 			return nil, err
 		}
 		return rec, nil
+	}
+}
+
+// secretsRevealHandler decrypts and returns the secret material for one
+// secret. Unlike every other secrets.* method, this hands the *plaintext*
+// credential back to the caller — so it is gated behind a re-check of the
+// vault master password. A client token alone (which an AI agent also holds)
+// is deliberately not sufficient.
+func secretsRevealHandler(d Deps) HandlerFunc {
+	return func(_ context.Context, sess *Session, raw json.RawMessage) (any, error) {
+		var p secretsRevealParams
+		if err := decodeParams(raw, &p); err != nil {
+			return nil, err
+		}
+		if p.IDOrName == "" {
+			return nil, errs.New(errs.CodeInvalidRequest, "id_or_name is required")
+		}
+		if p.Password == "" {
+			return nil, errs.New(errs.CodeInvalidRequest, "master password is required")
+		}
+		if wait := sess.RevealLockRemaining(); wait > 0 {
+			return nil, errs.Newf(errs.CodeForbidden,
+				"too many failed attempts; try again in %ds", int(wait.Seconds())+1)
+		}
+		if d.Vault.State() != vault.StateUnlocked {
+			return nil, errs.New(errs.CodeVaultLocked, "vault is locked").
+				WithHint("Run `cloak unlock` first.")
+		}
+		// Resolve the secret up front so a denied attempt can still name it.
+		rec, err := d.Store.GetSecret(p.IDOrName)
+		if err != nil {
+			return nil, err
+		}
+		// Re-authenticate: the master password is the gate.
+		pw := secrets.NewFromString(p.Password)
+		defer pw.Zero()
+		if err := d.Vault.VerifyPassword(pw); err != nil {
+			sess.RecordRevealFailure()
+			_ = d.Audit.Write(audit.Entry{
+				Event:      audit.EventSecretRevealDenied,
+				Client:     &audit.Client{TokenID: sess.TokenID(), Name: sess.TokenName(), PID: sess.PID()},
+				SecretID:   rec.ID,
+				SecretName: rec.Name,
+				Details:    map[string]any{"reason": "incorrect master password"},
+			})
+			return nil, errs.New(errs.CodeUnauthorized, "incorrect master password")
+		}
+		sess.ResetRevealFailures()
+
+		material, err := d.Store.DecryptSecret(rec.ID)
+		if err != nil {
+			return nil, err
+		}
+		defer material.Payload.Zero()
+		var payload map[string]any
+		if err := material.ParsePayload(&payload); err != nil {
+			return nil, errs.Wrap(errs.CodeInternalError, err)
+		}
+		_ = d.Audit.Write(audit.Entry{
+			Event:      audit.EventSecretRevealed,
+			Client:     &audit.Client{TokenID: sess.TokenID(), Name: sess.TokenName(), PID: sess.PID()},
+			SecretID:   rec.ID,
+			SecretName: rec.Name,
+			Details:    map[string]any{"type": string(rec.Type)},
+		})
+		return map[string]any{
+			"id":     rec.ID,
+			"name":   rec.Name,
+			"type":   rec.Type,
+			"config": rec.Config,
+			"secret": payload,
+		}, nil
 	}
 }
 

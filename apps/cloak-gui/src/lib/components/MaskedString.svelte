@@ -7,9 +7,16 @@
     sensitive?: boolean;
     /** Toast label for the copy action. */
     label?: string;
+    /**
+     * When true, the masked state is a fixed dot string that reveals nothing
+     * — not even the value's length, prefix or suffix. Use for credentials
+     * (passwords, keys); the default prefix/suffix preview suits connection
+     * strings, where a glimpse aids recognition.
+     */
+    fullMask?: boolean;
   }
 
-  const { value, sensitive = true, label = 'Copied' }: Props = $props();
+  const { value, sensitive = true, label = 'Copied', fullMask = false }: Props = $props();
 
   // Read `sensitive` once via a plain function call so svelte-check doesn't
   // flag "reference only captures initial value" — the only behaviour we
@@ -23,8 +30,11 @@
   // NOT scale with the secret's length — a long connection string masked
   // with one bullet per character produced a giant multi-line blob that
   // broke the row layout. A fixed mask also avoids leaking the length.
+  //
+  // With `fullMask`, even the prefix/suffix preview is dropped — the masked
+  // form is purely dots, so a credential leaks nothing while hidden.
   function masked(s: string): string {
-    if (s.length <= 12) return '••••••••';
+    if (fullMask || s.length <= 12) return '••••••••';
     return `${s.slice(0, 6)}••••••••${s.slice(-4)}`;
   }
 </script>

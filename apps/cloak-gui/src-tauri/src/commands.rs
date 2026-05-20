@@ -10,8 +10,8 @@
 use tauri::State;
 
 use crate::client::{
-    AuditEntry, CreateSecretRequest, Endpoint, Secret, Token, TokenInfo, UpdateSecretRequest,
-    VaultStatus,
+    AuditEntry, CreateSecretRequest, Endpoint, RevealedSecret, Secret, Token, TokenInfo,
+    UpdateSecretRequest, VaultStatus,
 };
 use crate::error::{AppError, Result};
 use crate::state::AppState;
@@ -88,6 +88,31 @@ pub async fn secrets_get(state: State<'_, AppState>, id_or_name: String) -> Resu
         .await?
         .transport()
         .get_secret(&id_or_name)
+        .await?)
+}
+
+/// Decrypt and return the secret material for one secret. Requires the vault
+/// master password as a re-authentication gate — a configured client token is
+/// deliberately not enough. The daemon audit-logs every call.
+#[tauri::command]
+pub async fn secrets_reveal(
+    state: State<'_, AppState>,
+    id_or_name: String,
+    password: String,
+) -> Result<RevealedSecret> {
+    if id_or_name.is_empty() {
+        return Err(AppError::InvalidArgument("secret is required".into()));
+    }
+    if password.is_empty() {
+        return Err(AppError::InvalidArgument(
+            "master password is required".into(),
+        ));
+    }
+    Ok(state
+        .client()
+        .await?
+        .transport()
+        .reveal_secret(&id_or_name, &password)
         .await?)
 }
 

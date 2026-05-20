@@ -28,6 +28,11 @@ const (
 	EventSecretCreated   = "secret.created"
 	EventSecretUpdated   = "secret.updated"
 	EventSecretDeleted   = "secret.deleted"
+	// Reveal of decrypted secret material to a human client, gated behind a
+	// master-password re-check. RevealDenied is a failed gate attempt. Logged
+	// with the secret name only — never the material itself.
+	EventSecretRevealed     = "secret.revealed"
+	EventSecretRevealDenied = "secret.reveal_denied"
 	EventEndpointOpened  = "endpoint.opened"
 	EventEndpointClosed  = "endpoint.closed"
 	EventEndpointExpired = "endpoint.expired"

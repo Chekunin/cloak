@@ -9,6 +9,7 @@
   import Card from '$lib/components/Card.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import ConfirmDialog, { type ConfirmConfig } from '$lib/components/ConfirmDialog.svelte';
+  import RevealDialog from '$lib/components/RevealDialog.svelte';
 
   const vaultUnlocked = $derived(
     vaultStore.phase.kind === 'ok' && vaultStore.phase.status.state === 'unlocked',
@@ -16,6 +17,7 @@
 
   let confirmConfig = $state<ConfirmConfig | null>(null);
   let pendingDelete = $state<string | null>(null);
+  let revealName = $state<string | null>(null);
 
   function askDelete(name: string) {
     pendingDelete = name;
@@ -142,6 +144,13 @@
                     <button
                       type="button"
                       class="text-zinc-600 hover:underline dark:text-zinc-300"
+                      onclick={() => (revealName = item.name)}
+                    >
+                      Reveal
+                    </button>
+                    <button
+                      type="button"
+                      class="text-zinc-600 hover:underline dark:text-zinc-300"
                       onclick={() => navigate('secrets:edit', item.name)}
                     >
                       Edit
@@ -172,3 +181,4 @@
 </div>
 
 <ConfirmDialog config={confirmConfig} onClose={onConfirmClose} />
+<RevealDialog secretName={revealName} onClose={() => (revealName = null)} />

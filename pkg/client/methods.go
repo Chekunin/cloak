@@ -83,6 +83,30 @@ func (c *Client) GetSecret(ctx context.Context, idOrName string) (*Secret, error
 	return &rec, nil
 }
 
+// RevealedSecret is the response shape of secrets.reveal: the full picture of
+// one secret. Config holds the non-secret connection metadata (host, port,
+// user, ...); Secret holds the decrypted material (passwords, keys) — handle
+// the latter with the same care as the vault itself.
+type RevealedSecret struct {
+	ID     string         `json:"id"`
+	Name   string         `json:"name"`
+	Type   SecretType     `json:"type"`
+	Config map[string]any `json:"config"`
+	Secret map[string]any `json:"secret"`
+}
+
+// RevealSecret decrypts and returns the secret material for one secret. It
+// requires the vault master password as a re-authentication gate; an
+// authenticated client token alone is deliberately not sufficient.
+func (c *Client) RevealSecret(ctx context.Context, idOrName, masterPassword string) (*RevealedSecret, error) {
+	var r RevealedSecret
+	if err := c.Call(ctx, "secrets.reveal",
+		map[string]any{"id_or_name": idOrName, "password": masterPassword}, &r); err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
 // CreateSecret creates a new secret.
 func (c *Client) CreateSecret(ctx context.Context, req CreateSecretRequest) (*Secret, error) {
 	var rec Secret

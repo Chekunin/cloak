@@ -71,6 +71,20 @@ pub struct Secret {
     pub last_used_at: Option<DateTime<Utc>>,
 }
 
+/// The full picture of one secret, returned by `secrets.reveal`. `config` is
+/// the non-secret connection metadata; `secret` holds the *plaintext*
+/// credential — unlike every other secrets.* response. The latter is treated
+/// with the same care as the vault itself.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RevealedSecret {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub kind: SecretType,
+    pub config: serde_json::Value,
+    pub secret: serde_json::Value,
+}
+
 // --- endpoints -----------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

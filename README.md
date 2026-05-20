@@ -240,6 +240,15 @@ before you rely on it.
 - Every secret access is recorded in an **append-only, hash-chained audit log** — tampering is detectable.
 - The vault **auto-locks** after inactivity, closing every endpoint.
 
+**Reading your own credentials**
+
+`cloak secret reveal` — and the desktop app's **Reveal** button — decrypt and
+show a stored credential on demand, so Cloak doubles as an everyday password
+manager. This is the one path that hands plaintext back to a client, so it is
+gated: it requires re-entering the **master password** (an AI agent has a
+client token, but not the master password), and every reveal is audit-logged.
+Use it from a human-facing client, not an automated one.
+
 **What it does not protect against (by design, in v1)**
 
 - A **compromised computer or user account** — anything that can read the daemon's memory defeats at-rest protection.

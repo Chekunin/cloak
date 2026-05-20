@@ -35,6 +35,7 @@ pub fn run() {
             commands::vault_lock,
             commands::secrets_list,
             commands::secrets_get,
+            commands::secrets_reveal,
             commands::secrets_create,
             commands::secrets_update,
             commands::secrets_delete,

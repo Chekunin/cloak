@@ -45,6 +45,17 @@ export interface Secret {
   last_used_at?: string | null;
 }
 
+/** The full picture of one secret, returned by `secrets.reveal`. `config` is
+ *  the non-secret connection metadata; `secret` is the *plaintext* credential
+ *  — handle the latter with care. */
+export interface RevealedSecret {
+  id: string;
+  name: string;
+  type: SecretType;
+  config: Record<string, unknown>;
+  secret: Record<string, unknown>;
+}
+
 // --- endpoints -----------------------------------------------------------
 
 export interface EndpointStats {

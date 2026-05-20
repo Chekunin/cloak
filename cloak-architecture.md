@@ -521,6 +521,7 @@ Local-only communication between daemon and CLI.
 | `vault.status` | Returns `{state, idle_timeout, expires_at, endpoints_open}`. |
 | `secrets.list` | Returns secrets with metadata only (id, name, type, description, config (non-secret), endpoint config, timestamps). Never returns secret material. |
 | `secrets.get` | Same as list but for one. |
+| `secrets.reveal` | Decrypt and return one secret's material. Body: `{id_or_name, password}`. The `password` is the vault master password — re-checked before decrypting, since a client token alone (held also by AI agents) must not unlock plaintext. Returns `{id, name, type, config, secret}`. Audit-logged (`secret.revealed`, or `secret.reveal_denied` on a wrong password). |
 | `secrets.create` | Create a new secret. Body: `{name, type, config, secret, endpoint_config}`. Secret material is encrypted before persisting. |
 | `secrets.update` | Update fields. |
 | `secrets.delete` | Delete a secret. |
@@ -582,6 +583,7 @@ Append-only JSONL log at `~/.cloak/audit.log`. The log is **not encrypted** in v
 
 - `vault.unlocked`, `vault.locked`, `vault.auto_locked`
 - `secret.created`, `secret.updated`, `secret.deleted`
+- `secret.revealed`, `secret.reveal_denied` (master-password-gated decrypt-and-show)
 - `endpoint.opened`, `endpoint.closed`, `endpoint.expired`
 - `endpoint.connection.opened`, `endpoint.connection.closed` (with bytes in/out)
 - `endpoint.connection.upstream_failed` (auth failure, network error to upstream)
@@ -607,6 +609,7 @@ cloak lock
 
 cloak secret list
 cloak secret show <name>            Metadata + non-secret config.
+cloak secret reveal <name>          Decrypt + print material. Prompts for the master password.
 cloak secret add ssh <name>         Interactive prompt for fields.
 cloak secret add postgres <name>
 cloak secret add mysql <name>

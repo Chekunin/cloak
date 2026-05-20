@@ -287,6 +287,118 @@ func TestE2EEnv(t *testing.T) {
 	}
 }
 
+// TestE2ESecretReveal exercises secrets.reveal: the master-password gate
+// rejects a wrong password, returns decrypted material for the right one, and
+// refuses once the vault is locked.
+func TestE2ESecretReveal(t *testing.T) {
+	dir := t.TempDir()
+	socketPath := filepath.Join(dir, "cloakd.sock")
+
+	auditLog, err := audit.Open(filepath.Join(dir, "audit.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer auditLog.Close()
+
+	v, err := vault.New(filepath.Join(dir, "vault.meta.json"), 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer v.Shutdown()
+
+	st, err := store.Open(filepath.Join(dir, "vault.db"), v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	reg := adapters.NewRegistry()
+	reg.Register(envadapter.New())
+
+	em := endpoints.NewManager(reg, v, st, auditLog, 0, filepath.Join(dir, "run"))
+	v.RegisterLockHook(func(reason vault.LockReason) { em.CloseAll(string(reason)) })
+
+	server := ipc.New(socketPath, st, auditLog, zerolog.Nop())
+	ipc.RegisterAll(server, ipc.Deps{
+		Vault: v, Store: st, Endpoints: em, Audit: auditLog, Adapters: reg,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := server.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer server.Stop()
+
+	c, err := pkgclient.Dial(ctx, socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if err := c.VaultInit(ctx, "master-pw"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if err := c.VaultUnlock(ctx, "master-pw"); err != nil {
+		t.Fatalf("unlock: %v", err)
+	}
+	tok, err := c.CreateToken(ctx, "test")
+	if err != nil {
+		t.Fatalf("create token: %v", err)
+	}
+	if err := c.Authenticate(ctx, tok.Token); err != nil {
+		t.Fatalf("hello: %v", err)
+	}
+
+	rec, err := c.CreateSecret(ctx, pkgclient.CreateSecretRequest{
+		Name:   "aws-prod",
+		Type:   pkgclient.TypeEnv,
+		Config: map[string]any{"inject_env": true},
+		Secret: map[string]any{"values": map[string]string{
+			"AWS_ACCESS_KEY_ID":     "AKIAEXAMPLE",
+			"AWS_SECRET_ACCESS_KEY": "supersecret",
+		}},
+		EndpointConfig: &pkgclient.EndpointConfig{Mode: pkgclient.ModeSession},
+	})
+	if err != nil {
+		t.Fatalf("create secret: %v", err)
+	}
+
+	// A client token alone must not be enough — the wrong master password
+	// is rejected.
+	if _, err := c.RevealSecret(ctx, rec.Name, "wrong-pw"); err == nil {
+		t.Fatal("reveal with wrong master password should fail")
+	}
+
+	// The correct master password returns the decrypted material.
+	revealed, err := c.RevealSecret(ctx, rec.Name, "master-pw")
+	if err != nil {
+		t.Fatalf("reveal: %v", err)
+	}
+	if revealed.Name != "aws-prod" {
+		t.Fatalf("name = %q, want aws-prod", revealed.Name)
+	}
+	values, ok := revealed.Secret["values"].(map[string]any)
+	if !ok {
+		t.Fatalf("secret.values missing or wrong shape: %v", revealed.Secret)
+	}
+	if values["AWS_SECRET_ACCESS_KEY"] != "supersecret" {
+		t.Fatalf("decrypted value mismatch: %v", values)
+	}
+	// Non-secret config travels alongside the decrypted material.
+	if revealed.Config["inject_env"] != true {
+		t.Fatalf("config not returned by reveal: %v", revealed.Config)
+	}
+
+	// A locked vault cannot reveal even with the right password.
+	if err := c.VaultLock(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.RevealSecret(ctx, rec.Name, "master-pw"); err == nil {
+		t.Fatal("reveal on a locked vault should fail")
+	}
+}
+
 func envFirstKey(m map[string]string, suffix string) string {
 	for k := range m {
 		if len(k) >= len(suffix) && k[len(k)-len(suffix):] == suffix {

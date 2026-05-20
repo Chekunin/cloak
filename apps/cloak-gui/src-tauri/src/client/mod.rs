@@ -22,8 +22,8 @@ pub use error::{ClientError, Result, RpcError};
 // Re-export only what callers in this crate use today; growing this list is a
 // one-line change when a new command needs another type.
 pub use types::{
-    AuditEntry, CreateSecretRequest, Endpoint, Secret, Token, TokenInfo, UpdateSecretRequest,
-    VaultStatus,
+    AuditEntry, CreateSecretRequest, Endpoint, RevealedSecret, Secret, Token, TokenInfo,
+    UpdateSecretRequest, VaultStatus,
 };
 
 use transport::Transport;
