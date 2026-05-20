@@ -7,6 +7,7 @@
 mod client;
 mod commands;
 mod error;
+mod exec;
 mod paths;
 mod state;
 mod tray;
@@ -37,6 +38,7 @@ pub fn run() {
             commands::endpoints_list,
             commands::endpoints_open,
             commands::endpoints_close,
+            commands::secrets_exec,
             commands::tokens_list,
             commands::tokens_create,
             commands::tokens_revoke,

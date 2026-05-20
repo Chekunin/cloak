@@ -62,6 +62,14 @@
       run: () => navigate('endpoints'),
     },
     {
+      id: 'nav.run',
+      label: 'Go to Run',
+      hint: 'Run a command with a secret injected.',
+      search: 'go to run exec command cli',
+      enabled: () => true,
+      run: () => navigate('run'),
+    },
+    {
       id: 'nav.tokens',
       label: 'Go to Tokens',
       hint: 'Bearer credentials for IPC clients.',

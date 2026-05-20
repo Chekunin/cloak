@@ -20,7 +20,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 
 # Async runtime.
-tokio = { version = "1.41", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time"] }
+tokio = { version = "1.41", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "process"] }
 
 # JSON-RPC plumbing.
 serde = { version = "1", features = ["derive"] }

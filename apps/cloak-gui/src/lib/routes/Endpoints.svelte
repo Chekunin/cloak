@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
+  import { navigate } from '$lib/router.svelte';
   import { endpoints as endpointsApi, isCommandError } from '$lib/api';
   import type { Endpoint } from '$lib/api';
   import { endpointsStore } from '$lib/stores/endpoints.svelte';
@@ -133,6 +134,7 @@
       {#each endpointsStore.phase.items as ep (ep.id)}
         {@const isExpanded = expanded.has(ep.id)}
         {@const secret = relatedSecret(ep.secret_id)}
+        {@const materialized = ep.kind === 'materialized'}
         <Card>
           <div class="flex items-start justify-between gap-4">
             <div class="min-w-0 flex-1">
@@ -143,14 +145,22 @@
                 >
                   {ep.type}
                 </span>
-                <span
-                  class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
-                >
-                  {ep.mode}
-                </span>
+                {#if materialized}
+                  <span
+                    class="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+                  >
+                    injected
+                  </span>
+                {:else}
+                  <span
+                    class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+                  >
+                    {ep.mode}
+                  </span>
+                {/if}
               </div>
               <div class="mt-1 font-mono text-xs text-zinc-500 dark:text-zinc-400">
-                {ep.local_addr}
+                {materialized ? 'injected — no network listener' : ep.local_addr}
                 {#if ep.expires_at}
                   · expires {timeAgo(ep.expires_at)}
                 {/if}
@@ -159,19 +169,23 @@
                 <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{secret.description}</p>
               {/if}
 
-              <div class="mt-3">
-                <MaskedString value={ep.connection_string} label="Connection URL copied" />
-              </div>
+              {#if ep.connection_string}
+                <div class="mt-3">
+                  <MaskedString value={ep.connection_string} label="Connection URL copied" />
+                </div>
+              {/if}
 
-              <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400">
-                <span>{ep.stats.connections_open} open</span>
-                <span>{ep.stats.connections_total} total</span>
-                <span>↓ {formatBytes(ep.stats.bytes_in)}</span>
-                <span>↑ {formatBytes(ep.stats.bytes_out)}</span>
-                {#if ep.stats.last_activity}
-                  <span>last activity {timeAgo(ep.stats.last_activity)}</span>
-                {/if}
-              </div>
+              {#if !materialized}
+                <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400">
+                  <span>{ep.stats.connections_open} open</span>
+                  <span>{ep.stats.connections_total} total</span>
+                  <span>↓ {formatBytes(ep.stats.bytes_in)}</span>
+                  <span>↑ {formatBytes(ep.stats.bytes_out)}</span>
+                  {#if ep.stats.last_activity}
+                    <span>last activity {timeAgo(ep.stats.last_activity)}</span>
+                  {/if}
+                </div>
+              {/if}
 
               {#if ep.env_vars && Object.keys(ep.env_vars).length > 0}
                 <button
@@ -209,7 +223,13 @@
             </div>
 
             <div class="flex shrink-0 flex-col items-end gap-2">
-              <CopyButton value={ep.connection_string} sensitive label="Connection URL copied" />
+              {#if materialized}
+                <Button variant="secondary" onclick={() => navigate('run', ep.secret_name)}>
+                  Run…
+                </Button>
+              {:else}
+                <CopyButton value={ep.connection_string} sensitive label="Connection URL copied" />
+              {/if}
               <Button variant="ghost" onclick={() => closeEndpoint(ep)}>Close</Button>
             </div>
           </div>

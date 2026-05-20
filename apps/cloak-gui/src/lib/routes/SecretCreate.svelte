@@ -5,6 +5,7 @@
   import MySQLForm from './secret-forms/MySQLForm.svelte';
   import SSHForm from './secret-forms/SSHForm.svelte';
   import HTTPForm from './secret-forms/HTTPForm.svelte';
+  import EnvForm from './secret-forms/EnvForm.svelte';
 
   let chosen = $state<SecretType | null>(null);
 
@@ -43,6 +44,12 @@
       description: 'Reverse-proxy with header / query injection.',
       iconPath: 'M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18M3 12a9 9 0 0 1 18 0M3 12a9 9 0 0 0 18 0',
     },
+    {
+      type: 'env',
+      title: 'Env',
+      description: 'Inject credentials into CLI tools — AWS CLI, gcloud, kubectl.',
+      iconPath: 'M4 5h16v14H4zM7 9l3 3-3 3M13 15h4',
+    },
   ];
 
   const titles: Record<SecretType, string> = {
@@ -50,6 +57,7 @@
     mysql: 'Add MySQL secret',
     ssh: 'Add SSH secret',
     http: 'Add HTTP secret',
+    env: 'Add Env secret',
   };
 </script>
 
@@ -66,9 +74,13 @@
       {chosen ? titles[chosen] : 'Add a secret'}
     </h1>
     <p class="text-sm text-zinc-500 dark:text-zinc-400">
-      {chosen
-        ? `Cloak will store these credentials encrypted and expose a local endpoint at 127.0.0.1.`
-        : 'Pick the protocol Cloak should proxy.'}
+      {#if !chosen}
+        Pick what Cloak should manage.
+      {:else if chosen === 'env'}
+        Cloak stores these values encrypted and injects them into commands you run.
+      {:else}
+        Cloak will store these credentials encrypted and expose a local endpoint at 127.0.0.1.
+      {/if}
     </p>
   </header>
 
@@ -102,5 +114,7 @@
     <SSHForm />
   {:else if chosen === 'http'}
     <HTTPForm />
+  {:else if chosen === 'env'}
+    <EnvForm />
   {/if}
 </div>

@@ -30,6 +30,9 @@
     { key: 'Authorization', value: 'Bearer {{ .api_key }}' },
   ]);
   let httpValues = $state<{ key: string; value: string }[]>([{ key: 'api_key', value: '' }]);
+  let envValues = $state<{ key: string; value: string }[]>([{ key: '', value: '' }]);
+
+  const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
   let submitting = $state(false);
   let topError = $state<string | null>(null);
@@ -80,6 +83,8 @@
           inject: { headers: pairsToObject(httpInject) },
           values: pairsToObject(httpValues),
         };
+      case 'env':
+        return { values: pairsToObject(envValues) };
     }
   }
 
@@ -95,6 +100,12 @@
         return sshKeyPem.trim() ? null : 'PEM is required.';
       case 'http':
         return null; // empty maps are legal — the user can clear injection rules
+      case 'env': {
+        const keys = envValues.map((p) => p.key.trim()).filter(Boolean);
+        if (keys.length === 0) return 'At least one key/value pair is required.';
+        const bad = keys.find((k) => !ENV_NAME.test(k));
+        return bad ? `"${bad}" is not a valid environment variable name.` : null;
+      }
     }
   }
 
@@ -213,6 +224,20 @@
               valuePlaceholder="The actual secret"
               sensitiveValues
               addLabel="Add value"
+            />
+          </FormField>
+        {:else if rec.type === 'env'}
+          <FormField
+            id="env-values"
+            label="Key / value pairs"
+            hint="Replaces the entire stored bag. Each key is an environment variable name."
+          >
+            <KeyValueList
+              bind:pairs={envValues}
+              keyPlaceholder="AWS_SECRET_ACCESS_KEY"
+              valuePlaceholder="The actual value"
+              sensitiveValues
+              addLabel="Add pair"
             />
           </FormField>
         {/if}

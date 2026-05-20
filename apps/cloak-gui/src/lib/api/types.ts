@@ -11,8 +11,11 @@
 
 // --- enums ---------------------------------------------------------------
 
-export type SecretType = 'ssh' | 'postgres' | 'mysql' | 'http';
+export type SecretType = 'ssh' | 'postgres' | 'mysql' | 'http' | 'env';
 export type EndpointMode = 'persistent' | 'session';
+
+/** Endpoint lifecycle kind: a network listener, or an injected-values handle. */
+export type EndpointKind = 'listener' | 'materialized';
 
 // --- endpoint config -----------------------------------------------------
 
@@ -57,6 +60,8 @@ export interface Endpoint {
   secret_id: string;
   secret_name: string;
   type: SecretType;
+  /** 'listener' for proxied endpoints, 'materialized' for env secrets. */
+  kind?: EndpointKind;
   mode: EndpointMode;
   local_addr: string;
   connection_string: string;
@@ -115,6 +120,22 @@ export interface UpdateSecretRequest {
   config?: Record<string, unknown>;
   secret?: Record<string, unknown>;
   endpoint_config?: EndpointConfig;
+}
+
+// --- exec ----------------------------------------------------------------
+
+/**
+ * Result of `secrets_exec` — running a command with a secret's endpoint
+ * environment variables injected. Mirrors `src-tauri/src/exec.rs::ExecResult`.
+ */
+export interface ExecResult {
+  stdout: string;
+  stderr: string;
+  exit_code: number;
+  /** True when stdout or stderr was clamped to the capture limit. */
+  truncated: boolean;
+  /** Names — never values — of the variables injected into the child. */
+  env_var_names: string[];
 }
 
 // --- diagnostics ---------------------------------------------------------

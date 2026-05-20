@@ -21,6 +21,8 @@ pub enum SecretType {
     Postgres,
     Mysql,
     Http,
+    /// Materialized secret — no listener; values injected into a child process.
+    Env,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,6 +90,11 @@ pub struct Endpoint {
     pub secret_name: String,
     #[serde(rename = "type")]
     pub kind: SecretType,
+    /// "listener" | "materialized". Named `endpoint_kind` because `kind` is
+    /// already the (renamed) `type` field above.
+    #[serde(rename = "kind", default)]
+    #[allow(clippy::struct_field_names)] // the JSON key is "kind"; `kind` is taken by `type`
+    pub endpoint_kind: String,
     pub mode: EndpointMode,
     pub local_addr: String,
     pub connection_string: String,

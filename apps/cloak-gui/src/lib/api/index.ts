@@ -9,6 +9,7 @@ export * as daemon from './daemon';
 export * as vault from './vault';
 export * as secrets from './secrets';
 export * as endpoints from './endpoints';
+export * as exec from './exec';
 export * as tokens from './tokens';
 export * as audit from './audit';
 

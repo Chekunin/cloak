@@ -20,6 +20,7 @@
   import SecretEdit from '$lib/routes/SecretEdit.svelte';
   import SecretRotate from '$lib/routes/SecretRotate.svelte';
   import Endpoints from '$lib/routes/Endpoints.svelte';
+  import Run from '$lib/routes/Run.svelte';
   import Tokens from '$lib/routes/Tokens.svelte';
   import Audit from '$lib/routes/Audit.svelte';
 
@@ -93,6 +94,8 @@
             {/key}
           {:else if router.route.path === 'endpoints'}
             <Endpoints />
+          {:else if router.route.path === 'run'}
+            <Run />
           {:else if router.route.path === 'tokens'}
             <Tokens />
           {:else if router.route.path === 'audit'}

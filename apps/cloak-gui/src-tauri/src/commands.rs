@@ -160,6 +160,41 @@ pub async fn endpoints_close(state: State<'_, AppState>, endpoint_id: String) ->
     Ok(())
 }
 
+// --- exec ----------------------------------------------------------------
+
+/// Run a command with a secret's endpoint environment variables injected —
+/// the GUI analogue of `cloak exec`. Opens an endpoint for `secret`, runs the
+/// command through the user's shell with the env vars layered on, and closes
+/// the endpoint again, even if the command fails.
+///
+/// Most useful for `env` secrets, where the injected variables are the real
+/// credentials a CLI tool (the AWS CLI, `gcloud`, …) needs. It also works for
+/// proxied secrets, injecting their `127.0.0.1` connection variables.
+#[tauri::command]
+pub async fn secrets_exec(
+    state: State<'_, AppState>,
+    secret: String,
+    command: String,
+) -> Result<crate::exec::ExecResult> {
+    if secret.is_empty() {
+        return Err(AppError::InvalidArgument("secret is required".into()));
+    }
+    if command.trim().is_empty() {
+        return Err(AppError::InvalidArgument("command is required".into()));
+    }
+    let client = state.client().await?;
+    let endpoint = client.transport().open_endpoint(&secret, 0).await?;
+
+    let result = crate::exec::run_in_shell(&command, &endpoint.env_vars).await;
+
+    // Always close the endpoint — success or failure — so a materialized
+    // secret's rendered files are shredded promptly.
+    if let Err(e) = client.transport().close_endpoint(&endpoint.id).await {
+        tracing::warn!(endpoint = %endpoint.id, error = %e, "could not close endpoint after exec");
+    }
+    result
+}
+
 // --- tokens --------------------------------------------------------------
 
 #[tauri::command]

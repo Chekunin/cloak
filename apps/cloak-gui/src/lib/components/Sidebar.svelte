@@ -17,6 +17,7 @@
     { path: 'dashboard', label: 'Dashboard', icon: 'home' },
     { path: 'secrets', label: 'Secrets', icon: 'key' },
     { path: 'endpoints', label: 'Endpoints', icon: 'plug' },
+    { path: 'run', label: 'Run', icon: 'terminal' },
     { path: 'tokens', label: 'Tokens', icon: 'tag' },
     { path: 'audit', label: 'Audit log', icon: 'list' },
   ];
@@ -25,6 +26,7 @@
     home: 'M3 12L12 3l9 9M5 10v10h14V10',
     key: 'M21 2l-9.6 9.6M15.5 7.5l3 3M11.4 11.6a5 5 0 1 1-7 7 5 5 0 0 1 7-7z',
     plug: 'M9 7V2M15 7V2M5 11h14v3a7 7 0 0 1-7 7 7 7 0 0 1-7-7v-3zM12 21v3',
+    terminal: 'M4 5h16v14H4zM7 9l3 3-3 3M13 15h4',
     tag: 'M20.6 13.4L13 21l-9-9 7.6-7.6h9z M7 7h.01',
     list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
   };
