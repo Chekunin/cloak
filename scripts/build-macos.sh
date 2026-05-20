@@ -58,9 +58,11 @@ else
 fi
 
 if [[ -n "${APPLE_SIGNING_IDENTITY:-}${APPLE_CERTIFICATE:-}" ]]; then
-  echo "==> Apple code signing: ENABLED"
+  echo "==> Code signing: Developer ID (Apple credentials detected)"
 else
-  echo "==> Apple code signing: disabled — the app will be unsigned."
+  echo "==> Code signing: ad-hoc — the app is signed but not notarized;"
+  echo "    users get a one-time 'unidentified developer' prompt. Set the"
+  echo "    APPLE_* variables to sign + notarize for a friction-free install."
 fi
 
 # An interrupted previous build can leave a DMG mounted and a stale read-write
