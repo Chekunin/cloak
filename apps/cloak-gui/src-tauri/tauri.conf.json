@@ -35,12 +35,16 @@
     "copyright": "Copyright 2026 The Cloak Authors",
     "shortDescription": "Local secret broker",
     "longDescription": "Cloak keeps real credentials inside an encrypted local vault and exposes each one as a local network endpoint that speaks the credential's native protocol.",
+    "externalBin": ["binaries/cloakd"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    }
   }
 }

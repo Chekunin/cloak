@@ -11,15 +11,18 @@ into the full feature set described in the project plan.
 ## Prerequisites
 
 - **Rust** 1.77+ (stable channel) — `rustup install stable`
+- **Go** 1.22+ — to build the `cloakd` daemon the app bundles
 - **Node.js** 20+ and **pnpm** 9+ — `npm i -g pnpm`
 - **Tauri 2 platform tooling**:
   - macOS: Xcode Command Line Tools
   - Linux: `webkit2gtk-4.1`, `libgtk-3-dev`, `libayatana-appindicator3-dev`,
     `librsvg2-dev` (or your distro's equivalents)
   - Windows: WebView2 runtime (pre-installed on Windows 11), MSVC toolchain
-- A **running `cloakd`** somewhere it can reach via Unix socket. The GUI
-  uses the same path resolution as the CLI: `$CLOAK_HOME/cloakd.sock` or
-  `~/.cloak/cloakd.sock`.
+
+You do **not** need a daemon running beforehand. The app bundles `cloakd`
+and starts it automatically on launch (see [Daemon lifecycle](#daemon-lifecycle)).
+The GUI resolves the socket the same way the CLI does:
+`$CLOAK_HOME/cloakd.sock` or `~/.cloak/cloakd.sock`.
 
 ---
 
@@ -29,6 +32,13 @@ into the full feature set described in the project plan.
 # from the project root
 cd apps/cloak-gui
 pnpm install                     # install JS deps
+
+# Build the cloakd daemon the app bundles. Tauri's `externalBin` looks for
+# it by Rust target triple; this builds the one for your machine. Re-run
+# whenever the Go daemon code changes.
+mkdir -p src-tauri/binaries
+CGO_ENABLED=0 go build -o "src-tauri/binaries/cloakd-$(rustc -vV | sed -n 's/host: //p')" ../../cmd/cloakd
+
 pnpm tauri dev                   # runs Vite + cargo, opens a window
 ```
 
@@ -40,13 +50,89 @@ The window opens against a frontend served at `http://localhost:1420`. The
 Svelte runtime calls `daemon_ping` and `vault_status` on a 1.5 s tick and
 renders the result.
 
-If the daemon is not running you'll see an amber "Daemon unreachable" banner;
-start it from another terminal:
+The GUI starts the bundled `cloakd` for you — the dashboard should come up
+within a second or two. If you prefer to run your own daemon (e.g. one
+started with `cloak daemon start`), the GUI detects it and uses that instead.
+
+---
+
+## Daemon lifecycle
+
+A GUI-first user never opens a terminal, so the GUI owns the daemon:
+
+- **On launch** the GUI checks whether a `cloakd` is already reachable on the
+  socket. If one is, it adopts it. If not, it spawns the `cloakd` binary
+  bundled inside the app (`src-tauri/src/daemon.rs`).
+- **On quit** (tray *Quit* or ⌘Q) the GUI stops the daemon — but only if it
+  was the one that started it. A daemon you started yourself is left running.
+- A daemon the GUI spawned logs to `~/.cloak/cloakd.log`.
+
+This means there is nothing to install or configure separately: the daemon
+is an implementation detail the user never sees.
+
+---
+
+## Building & distributing for macOS
+
+The `.app` bundle embeds `cloakd` (via Tauri's `externalBin`), so a single
+file is all a user needs.
+
+### One-shot build
+
+From the repository root:
 
 ```bash
-cloak daemon start
-cloak unlock                     # if you've already initialised the vault
+./scripts/build-macos.sh
 ```
+
+It builds `cloakd` for Apple Silicon **and** Intel, merges them into a
+universal binary, and produces a universal
+`Cloak_<version>_universal.dmg` under
+`apps/cloak-gui/src-tauri/target/universal-apple-darwin/release/bundle/dmg/`.
+That one DMG runs on every Mac.
+
+### Code signing & notarization
+
+A build with no Apple credentials is **unsigned**. It runs, but macOS
+Gatekeeper tells your users *"Cloak can't be opened because Apple cannot
+check it for malicious software"* — a poor first impression for
+non-technical users. For real distribution you must sign and notarize the
+app, which needs a paid **Apple Developer account** (US $99/year) and a
+**Developer ID Application** certificate.
+
+Tauri signs and notarizes automatically during the build when these
+environment variables are set:
+
+| Variable | Purpose |
+|---|---|
+| `APPLE_SIGNING_IDENTITY` | Developer ID identity, e.g. `Developer ID Application: Your Name (TEAMID)`. |
+| `APPLE_ID` | Apple ID email used for notarization. |
+| `APPLE_PASSWORD` | An [app-specific password](https://support.apple.com/en-us/102654) for that Apple ID. |
+| `APPLE_TEAM_ID` | Your 10-character Apple Developer Team ID. |
+
+Export those, then re-run `./scripts/build-macos.sh`. Tauri signs the app
+(the embedded `cloakd` included) with the hardened runtime, submits it to
+Apple's notary service, and staples the ticket. The resulting DMG opens
+cleanly on any Mac.
+
+(For CI, `APPLE_CERTIFICATE` + `APPLE_CERTIFICATE_PASSWORD` import the
+certificate from a base64 blob instead of the login keychain. An App Store
+Connect API key — `APPLE_API_ISSUER` / `APPLE_API_KEY` — can stand in for
+the Apple-ID notarization variables.)
+
+### Sharing it
+
+With a signed, notarized DMG in hand:
+
+1. Host the `.dmg` where users can download it — a **GitHub Release** is the
+   simplest: attach the DMG as a release asset.
+2. The user opens the DMG and drags **Cloak** into **Applications**.
+3. They launch Cloak. The first run walks them through setting a master
+   password; the daemon starts behind the scenes. No terminal, ever.
+
+If you distribute an unsigned build for testing, tell those testers to
+right-click the app and choose **Open** the first time — but for real users,
+notarize.
 
 ---
 

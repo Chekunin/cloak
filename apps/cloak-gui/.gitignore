@@ -8,6 +8,9 @@ dist/
 src-tauri/target/
 src-tauri/gen/
 
+# Bundled daemon binaries — produced by scripts/build-macos.sh
+src-tauri/binaries/
+
 # Generated icons (rebuild via `pnpm tauri icon`)
 src-tauri/icons/*.png
 src-tauri/icons/*.icns

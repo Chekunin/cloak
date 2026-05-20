@@ -6,13 +6,14 @@
 
 mod client;
 mod commands;
+mod daemon;
 mod error;
 mod exec;
 mod paths;
 mod state;
 mod tray;
 
-use tauri::WindowEvent;
+use tauri::{Manager, RunEvent, WindowEvent};
 use tracing_subscriber::EnvFilter;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -21,8 +22,9 @@ pub fn run() {
 
     let app_state = state::AppState::new().expect("initialize app state");
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .manage(app_state)
+        .manage(daemon::DaemonSupervisor::new())
         .invoke_handler(tauri::generate_handler![
             commands::daemon_ping,
             commands::daemon_info,
@@ -48,6 +50,23 @@ pub fn run() {
         ])
         .setup(|app| {
             tray::build(app.handle())?;
+
+            // Make the daemon "just work" for GUI-first users: if no `cloakd`
+            // is running, start the one bundled with the app. Done off the
+            // main thread so the window opens immediately — the connection
+            // banner reflects progress as the daemon comes up.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || match paths::socket_path() {
+                Ok(socket) => {
+                    if let Err(e) = handle
+                        .state::<daemon::DaemonSupervisor>()
+                        .ensure_running(&socket)
+                    {
+                        tracing::warn!(error = %e, "daemon autostart failed");
+                    }
+                }
+                Err(e) => tracing::warn!(error = %e, "cannot resolve daemon socket path"),
+            });
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -58,8 +77,15 @@ pub fn run() {
                 api.prevent_close();
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running cloak-gui");
+        .build(tauri::generate_context!())
+        .expect("error while building cloak-gui");
+
+    // On a real quit (tray Quit / cmd-Q), stop the daemon if we started it.
+    app.run(|app_handle, event| {
+        if let RunEvent::Exit = event {
+            app_handle.state::<daemon::DaemonSupervisor>().shutdown();
+        }
+    });
 }
 
 fn init_logging() {
