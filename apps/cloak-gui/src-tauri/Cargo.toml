@@ -2,7 +2,7 @@
 name = "cloak-gui"
 version = "0.1.0"
 description = "Cloak — local secret broker (desktop GUI)"
-authors = ["The Cloak Authors"]
+authors = ["Aleksei Chekunin"]
 license = "Apache-2.0"
 repository = "https://github.com/Chekunin/cloak"
 edition = "2021"

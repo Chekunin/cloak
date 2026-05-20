@@ -301,4 +301,4 @@ go test ./...
 
 ## License
 
-[Apache-2.0](./LICENSE). © The Cloak Authors.
+[Apache-2.0](./LICENSE). © 2026 Aleksei Chekunin.
