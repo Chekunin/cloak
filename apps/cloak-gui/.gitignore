@@ -1,0 +1,23 @@
+# Frontend
+node_modules/
+dist/
+.svelte-kit/
+.vite/
+
+# Tauri / Rust
+src-tauri/target/
+src-tauri/gen/
+
+# Generated icons (rebuild via `pnpm tauri icon`)
+src-tauri/icons/*.png
+src-tauri/icons/*.icns
+src-tauri/icons/*.ico
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/*
+!.vscode/extensions.json

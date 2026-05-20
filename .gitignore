@@ -7,3 +7,8 @@
 .idea/
 .vscode/
 .DS_Store
+
+# GUI build artifacts (apps/cloak-gui has its own gitignore for the bulk)
+apps/cloak-gui/node_modules/
+apps/cloak-gui/src-tauri/target/
+apps/cloak-gui/src-tauri/gen/

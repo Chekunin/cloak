@@ -194,12 +194,13 @@ func readAll(path string, limit int) ([]Entry, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
+			return []Entry{}, nil
 		}
 		return nil, err
 	}
 	defer f.Close()
-	var out []Entry
+	// Non-nil empty slice so JSON encodes as `[]`, not `null`.
+	out := []Entry{}
 	br := bufio.NewReaderSize(f, 1<<16)
 	for {
 		line, err := br.ReadBytes('\n')

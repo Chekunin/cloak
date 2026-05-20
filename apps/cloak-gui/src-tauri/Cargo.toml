@@ -1,0 +1,56 @@
+[package]
+name = "cloak-gui"
+version = "0.1.0"
+description = "Cloak — local secret broker (desktop GUI)"
+authors = ["The Cloak Authors"]
+license = "Apache-2.0"
+repository = "https://github.com/Chekunin/cloak"
+edition = "2021"
+rust-version = "1.77"
+
+# Library crate Tauri can load; `main.rs` is a thin wrapper.
+[lib]
+name = "cloak_gui_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+
+# Async runtime.
+tokio = { version = "1.41", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time"] }
+
+# JSON-RPC plumbing.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Errors.
+thiserror = "1"
+
+# Diagnostics.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Time types on the wire.
+chrono = { version = "0.4", features = ["serde"] }
+
+# Lints — match the project's preference for strictness.
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Allow common pedantic complaints that don't carry their weight in a desktop app.
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"     # optimize for size — desktop app, not a hot loop
+panic = "abort"
+strip = true

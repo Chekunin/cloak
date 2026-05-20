@@ -181,3 +181,50 @@ func TestCloseAllDuringConcurrentOpen(t *testing.T) {
 		t.Fatalf("endpoints survived CloseAll: %+v", got)
 	}
 }
+
+// TestListIsSortedDeterministically opens several endpoints in a non-sorted
+// name order and asserts that List() returns them sorted by SecretName on
+// every call. Without server-side sorting, Go's randomised map iteration
+// would shuffle the response between polls — a real bug reported by users
+// of the GUI where endpoint cards reordered every refresh.
+func TestListIsSortedDeterministically(t *testing.T) {
+	_, st, _, em, cleanup := buildEnv(t)
+	defer cleanup()
+
+	// Insert in deliberately out-of-order names.
+	for _, name := range []string{"charlie", "alpha", "bravo", "echo", "delta"} {
+		if _, err := st.CreateSecret(name, store.TypeHTTP, "",
+			map[string]any{"upstream": "http://127.0.0.1:1"},
+			store.EndpointConfig{Mode: store.ModeSession, RequireLocalAuth: false},
+			[]byte(`{}`)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := em.Open(context.Background(), name, 60); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	want := []string{"alpha", "bravo", "charlie", "delta", "echo"}
+	// Call List() many times — if the result depended on map iteration order,
+	// at least one call would diverge.
+	for i := 0; i < 30; i++ {
+		got := em.List()
+		if len(got) != len(want) {
+			t.Fatalf("len(List())=%d, want %d", len(got), len(want))
+		}
+		for j, name := range want {
+			if got[j].SecretName != name {
+				t.Fatalf("call %d: position %d = %q, want %q (full order: %v)",
+					i, j, got[j].SecretName, name, namesOf(got))
+			}
+		}
+	}
+}
+
+func namesOf(eps []endpoints.EndpointSnapshot) []string {
+	out := make([]string, len(eps))
+	for i, e := range eps {
+		out[i] = e.SecretName
+	}
+	return out
+}

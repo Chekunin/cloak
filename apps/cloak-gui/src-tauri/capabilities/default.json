@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "default",
+  "description": "Default capability granted to the main window in Phase 0. Permissions are kept narrow on purpose; new commands must add their own.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:event:default",
+    "core:tray:default",
+    "core:menu:default"
+  ]
+}

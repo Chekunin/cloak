@@ -86,7 +86,9 @@ func (s *Store) ListTokens() ([]TokenRecord, error) {
 		return nil, errs.Wrap(errs.CodeInternalError, err)
 	}
 	defer rows.Close()
-	var out []TokenRecord
+	// Non-nil empty slice so JSON encodes as `[]`, not `null`. Same reasoning
+	// as ListSecrets — keeps the wire contract simple for typed clients.
+	out := []TokenRecord{}
 	for rows.Next() {
 		var (
 			rec        TokenRecord

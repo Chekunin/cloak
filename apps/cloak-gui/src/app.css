@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+/* Tailwind v4 CSS-first theming. Tokens here propagate to every utility. */
+@theme {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui,
+    sans-serif;
+  --font-mono:
+    'JetBrains Mono', 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code,
+pre,
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* The Tauri webview occasionally surfaces text-selection oddities on
+   chrome-less surfaces; lock it down deliberately and re-enable per element
+   where we want it. */
+:root {
+  user-select: none;
+}
+
+input,
+textarea,
+[contenteditable='true'],
+.select-text {
+  user-select: text;
+}

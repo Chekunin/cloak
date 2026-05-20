@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -298,7 +299,11 @@ func (m *Manager) Refresh(endpointID string, ttlOverrideSeconds int) (EndpointSn
 	return ep.Snapshot(), nil
 }
 
-// List returns snapshots of all open endpoints.
+// List returns snapshots of all open endpoints, sorted deterministically by
+// secret name (then endpoint id) so polled UIs don't see rows shuffle every
+// tick. Map iteration order in Go is randomised; without a sort the same
+// data round-tripped through this method would arrive at the client in a
+// different order each call.
 func (m *Manager) List() []EndpointSnapshot {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -306,6 +311,12 @@ func (m *Manager) List() []EndpointSnapshot {
 	for _, e := range m.active {
 		out = append(out, e.Snapshot())
 	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].SecretName != out[j].SecretName {
+			return out[i].SecretName < out[j].SecretName
+		}
+		return out[i].ID < out[j].ID
+	})
 	return out
 }
 

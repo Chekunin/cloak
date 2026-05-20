@@ -189,7 +189,10 @@ func (s *Store) ListSecrets() ([]SecretRecord, error) {
 		return nil, errs.Wrap(errs.CodeInternalError, err)
 	}
 	defer rows.Close()
-	var out []SecretRecord
+	// Non-nil empty slice so JSON encodes as `[]`, not `null`. Wire contract
+	// matters: the Rust client decodes the response into `Vec<Secret>` which
+	// rejects `null`.
+	out := []SecretRecord{}
 	for rows.Next() {
 		rec, err := scanSecret(rows)
 		if err != nil {
