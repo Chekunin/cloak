@@ -1,15 +1,18 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
   import { router, navigate } from '$lib/router.svelte';
   import { connection } from '$lib/stores/connection.svelte';
   import { vaultStore } from '$lib/stores/vault.svelte';
   import { theme } from '$lib/stores/theme.svelte';
+  import { update } from '$lib/stores/update.svelte';
 
   import Sidebar from '$lib/components/Sidebar.svelte';
   import ConnectionBanner from '$lib/components/ConnectionBanner.svelte';
   import Toasts from '$lib/components/Toasts.svelte';
   import CommandPalette from '$lib/components/CommandPalette.svelte';
+  import UpdateDialog from '$lib/components/UpdateDialog.svelte';
   import { installKeyboardShortcuts } from '$lib/keyboard.svelte';
 
   import Welcome from '$lib/routes/Welcome.svelte';
@@ -25,18 +28,24 @@
   import Audit from '$lib/routes/Audit.svelte';
 
   let uninstallShortcuts: (() => void) | null = null;
+  let unlistenUpdate: UnlistenFn | null = null;
 
   onMount(() => {
     theme.init();
     connection.start();
     vaultStore.start();
     uninstallShortcuts = installKeyboardShortcuts();
+    // The tray's "Check for Updates…" item emits this; run the check here.
+    void listen('menu://check-update', () => void update.check()).then((fn) => {
+      unlistenUpdate = fn;
+    });
   });
 
   onDestroy(() => {
     connection.stop();
     vaultStore.stop();
     uninstallShortcuts?.();
+    unlistenUpdate?.();
   });
 
   /**
@@ -117,5 +126,6 @@
   {/if}
 
   <CommandPalette />
+  <UpdateDialog />
   <Toasts />
 </div>

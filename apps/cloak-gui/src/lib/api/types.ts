@@ -138,6 +138,23 @@ export interface ExecResult {
   env_var_names: string[];
 }
 
+// --- updates -------------------------------------------------------------
+
+/**
+ * A newer release offered by the update endpoint. Mirrors
+ * `src-tauri/src/commands.rs::UpdateInfo`.
+ */
+export interface UpdateInfo {
+  /** The version the update would install. */
+  version: string;
+  /** The version currently running. */
+  current_version: string;
+  /** Release notes, when the manifest carries them. */
+  notes?: string | null;
+  /** Publish date, when present. */
+  date?: string | null;
+}
+
 // --- diagnostics ---------------------------------------------------------
 
 export interface DaemonInfo {

@@ -28,6 +28,14 @@
       "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost"
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/Chekunin/cloak/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDExRUEzMzkxMDJERDY3QjEKUldTeFo5MENrVFBxRVdiRkVPVHQrYUdlSVEzamFLRFRWVXppUGdYYnJiWk9uZlFRanFkSDMweFoK"
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",

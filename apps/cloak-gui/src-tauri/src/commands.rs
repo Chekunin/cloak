@@ -195,6 +195,61 @@ pub async fn secrets_exec(
     result
 }
 
+// --- updates -------------------------------------------------------------
+
+/// A newer release offered by the configured update endpoint.
+#[derive(serde::Serialize)]
+pub struct UpdateInfo {
+    /// The version the update would install.
+    pub version: String,
+    /// The version currently running.
+    pub current_version: String,
+    /// Release notes, when the update manifest carries them.
+    pub notes: Option<String>,
+    /// Publish date, when present.
+    pub date: Option<String>,
+}
+
+/// Check the update endpoint for a newer release. `Ok(None)` means the app is
+/// already up to date.
+#[tauri::command]
+pub async fn check_for_update(app: tauri::AppHandle) -> Result<Option<UpdateInfo>> {
+    use tauri_plugin_updater::UpdaterExt;
+    let updater = app
+        .updater()
+        .map_err(|e| AppError::Internal(format!("updates are not configured: {e}")))?;
+    match updater.check().await {
+        Ok(Some(u)) => Ok(Some(UpdateInfo {
+            version: u.version.clone(),
+            current_version: u.current_version.clone(),
+            notes: u.body.clone(),
+            date: u.date.map(|d| d.to_string()),
+        })),
+        Ok(None) => Ok(None),
+        Err(e) => Err(AppError::Internal(format!("update check failed: {e}"))),
+    }
+}
+
+/// Download and install the available update, then relaunch. On success the
+/// process is replaced and this never returns.
+#[tauri::command]
+pub async fn install_update(app: tauri::AppHandle) -> Result<()> {
+    use tauri_plugin_updater::UpdaterExt;
+    let updater = app
+        .updater()
+        .map_err(|e| AppError::Internal(format!("updates are not configured: {e}")))?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| AppError::Internal(format!("update check failed: {e}")))?
+        .ok_or_else(|| AppError::Internal("no update is available".into()))?;
+    update
+        .download_and_install(|_chunk, _total| {}, || {})
+        .await
+        .map_err(|e| AppError::Internal(format!("update install failed: {e}")))?;
+    app.restart();
+}
+
 // --- tokens --------------------------------------------------------------
 
 #[tauri::command]

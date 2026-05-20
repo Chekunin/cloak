@@ -136,6 +136,71 @@ notarize.
 
 ---
 
+## In-app updates
+
+The app has a **Check for Updates…** item in the tray menu (and in the ⌘K
+command palette). It checks a manifest on your GitHub Releases, and — if a
+newer version exists — downloads, verifies, installs, and relaunches.
+
+This is **separate from Apple code signing** and works without an Apple
+account. It uses Tauri's own update mechanism, which signs each update with a
+free **minisign** key pair that you generate and hold.
+
+### One-time setup
+
+Generate the update-signing key pair:
+
+```bash
+cd apps/cloak-gui
+pnpm tauri signer generate -w ~/.cloak/updater.key
+```
+
+This prints a **public key** and writes a **private key** to
+`~/.cloak/updater.key`.
+
+- Paste the **public key** into `src-tauri/tauri.conf.json` at
+  `plugins.updater.pubkey`, replacing the `REPLACE_WITH_…` placeholder. It is
+  not secret — it ships inside the app and is how each install verifies that
+  an update really came from you. Commit this change.
+- Keep the **private key** safe and secret (a password manager, or a GitHub
+  Actions secret). It signs every update. If it leaks, someone could push a
+  malicious update to your users; if you lose it, you can't ship updates and
+  must start over with a new key.
+
+Also confirm `plugins.updater.endpoints` in `tauri.conf.json` points at your
+repository.
+
+### Cutting a release
+
+1. Bump `version` in `src-tauri/tauri.conf.json` — the updater compares this.
+2. Export the private key and build:
+
+   ```bash
+   export TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.cloak/updater.key)"
+   # export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="…"   # if you set a password
+   ./scripts/build-macos.sh
+   ```
+
+   With that variable set, the script additionally produces
+   `Cloak.app.tar.gz` + `Cloak.app.tar.gz.sig` (the update payload) and a
+   `latest.json` manifest.
+3. Create a **GitHub Release tagged `v<version>`** and upload three assets:
+   the `.dmg` (for new users), `Cloak.app.tar.gz` (the update payload), and
+   `latest.json` (the manifest). The script prints exactly where each is.
+
+Existing users' apps fetch `latest.json` from the *latest* release, see the
+new version, and offer the update. New users still download the DMG.
+
+### A note on unsigned updates
+
+The updater's minisign signature guarantees update *integrity*. But if you
+skip Apple notarization, the *first* launch after an update may re-show the
+Gatekeeper prompt, because macOS re-evaluates the changed unsigned bundle.
+Notarizing (above) removes that. Test the post-update launch on a real Mac
+before relying on it.
+
+---
+
 ## Project layout
 
 ```

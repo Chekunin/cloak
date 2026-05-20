@@ -4,15 +4,20 @@
 //! close button hides to tray rather than terminating the process; the user
 //! truly quits via the Quit menu item or `cmd-Q` on macOS.
 
-use tauri::menu::{Menu, MenuEvent, MenuItem};
+use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::state::AppState;
 
 const ID_SHOW: &str = "show_window";
 const ID_LOCK: &str = "lock_vault";
+const ID_UPDATE: &str = "check_update";
 const ID_QUIT: &str = "quit";
+
+/// Event the tray emits to ask the frontend to run an update check. The
+/// frontend listens for it and drives the update dialog.
+pub const EVENT_CHECK_UPDATE: &str = "menu://check-update";
 
 /// Build the tray icon and register its menu/event handlers.
 ///
@@ -37,8 +42,10 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
 fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let show = MenuItem::with_id(app, ID_SHOW, "Show Cloak", true, None::<&str>)?;
     let lock = MenuItem::with_id(app, ID_LOCK, "Lock vault", true, Some("CmdOrCtrl+L"))?;
+    let update = MenuItem::with_id(app, ID_UPDATE, "Check for Updates…", true, None::<&str>)?;
+    let sep = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, ID_QUIT, "Quit", true, Some("CmdOrCtrl+Q"))?;
-    Menu::with_items(app, &[&show, &lock, &quit])
+    Menu::with_items(app, &[&show, &lock, &update, &sep, &quit])
 }
 
 // Signatures are fixed by Tauri's tray callback contracts — these args are
@@ -48,6 +55,14 @@ fn on_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
     match event.id().as_ref() {
         ID_SHOW => show_main_window(app),
         ID_LOCK => spawn_lock(app.clone()),
+        ID_UPDATE => {
+            // Surface the window so the update dialog is visible, then ask the
+            // frontend to run the check.
+            show_main_window(app);
+            if let Err(err) = app.emit(EVENT_CHECK_UPDATE, ()) {
+                tracing::warn!(error = %err, "tray: could not emit update-check event");
+            }
+        }
         ID_QUIT => app.exit(0),
         _ => {}
     }

@@ -12,6 +12,7 @@ export * as endpoints from './endpoints';
 export * as exec from './exec';
 export * as tokens from './tokens';
 export * as audit from './audit';
+export * as update from './update';
 
 export type * from './types';
 export { isCommandError } from './types';

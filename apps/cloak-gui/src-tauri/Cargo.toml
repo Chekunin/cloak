@@ -6,7 +6,7 @@ authors = ["The Cloak Authors"]
 license = "Apache-2.0"
 repository = "https://github.com/Chekunin/cloak"
 edition = "2021"
-rust-version = "1.77"
+rust-version = "1.77.2"
 
 # Library crate Tauri can load; `main.rs` is a thin wrapper.
 [lib]
@@ -35,6 +35,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Time types on the wire.
 chrono = { version = "0.4", features = ["serde"] }
+
+# In-app updates — checks GitHub Releases, verifies a minisign signature.
+tauri-plugin-updater = "2.10.1"
 
 # Lints — match the project's preference for strictness.
 [lints.rust]

@@ -18,6 +18,7 @@
   import { vaultStore } from '$lib/stores/vault.svelte';
   import { connection } from '$lib/stores/connection.svelte';
   import { palette } from '$lib/stores/palette.svelte';
+  import { update } from '$lib/stores/update.svelte';
   import { toasts } from '$lib/stores/toasts.svelte';
 
   interface Command {
@@ -92,6 +93,14 @@
       search: 'new secret create add',
       enabled: () => unlocked && authorised,
       run: () => navigate('secrets:create'),
+    },
+    {
+      id: 'act.check-update',
+      label: 'Check for Updates',
+      hint: 'See whether a newer version of Cloak is available.',
+      search: 'check for updates upgrade version',
+      enabled: () => true,
+      run: () => void update.check(),
     },
     {
       id: 'act.lock',

@@ -25,6 +25,7 @@ pub fn run() {
     let app = tauri::Builder::default()
         .manage(app_state)
         .manage(daemon::DaemonSupervisor::new())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             commands::daemon_ping,
             commands::daemon_info,
@@ -41,6 +42,8 @@ pub fn run() {
             commands::endpoints_open,
             commands::endpoints_close,
             commands::secrets_exec,
+            commands::check_for_update,
+            commands::install_update,
             commands::tokens_list,
             commands::tokens_create,
             commands::tokens_revoke,
