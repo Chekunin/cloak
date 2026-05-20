@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 #
-# Build the Cloak desktop app for macOS as a single universal .dmg.
+# Build the Cloak desktop app for macOS (Apple Silicon / arm64) as a .dmg.
 #
-# It builds the Go daemon (cloakd) for Apple Silicon and Intel, merges them
-# into a universal binary where Tauri's `externalBin` bundler expects it, and
-# builds the universal app.
+# It builds the Go daemon (cloakd) and places it where Tauri's `externalBin`
+# bundler expects it, then builds the app.
 #
 # Two optional, independent signing layers kick in from environment variables:
 #
@@ -16,6 +15,10 @@
 #     update-signing key, see apps/cloak-gui/README.md). With it the script
 #     also produces Cloak.app.tar.gz + .sig and a latest.json manifest so the
 #     app's "Check for Updates" can upgrade existing installs.
+#
+# Apple Silicon only. To also support Intel Macs, build a universal binary:
+# `rustup target add x86_64-apple-darwin`, build cloakd for both arches and
+# `lipo` them, and pass `--target universal-apple-darwin` to `tauri build`.
 #
 # Usage:  ./scripts/build-macos.sh
 
@@ -32,16 +35,11 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 1
 fi
 
-echo "==> Building cloakd for arm64 and amd64"
+echo "==> Building cloakd (arm64)"
 mkdir -p "$BIN_DIR"
 CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w" \
   -o "$BIN_DIR/cloakd-aarch64-apple-darwin" ./cmd/cloakd
-CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags="-s -w" \
-  -o "$BIN_DIR/cloakd-x86_64-apple-darwin" ./cmd/cloakd
-lipo -create -output "$BIN_DIR/cloakd-universal-apple-darwin" \
-  "$BIN_DIR/cloakd-aarch64-apple-darwin" \
-  "$BIN_DIR/cloakd-x86_64-apple-darwin"
-chmod +x "$BIN_DIR"/cloakd-*
+chmod +x "$BIN_DIR/cloakd-aarch64-apple-darwin"
 
 UPDATER=0
 if [[ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
@@ -65,17 +63,16 @@ else
   echo "==> Apple code signing: disabled — the app will be unsigned."
 fi
 
-echo "==> Building the Cloak app (universal)"
+echo "==> Building the Cloak app (arm64)"
 cd "$GUI_DIR"
 pnpm install --frozen-lockfile
 if [[ "$UPDATER" == "1" ]]; then
-  pnpm tauri build --target universal-apple-darwin \
-    --config '{"bundle":{"createUpdaterArtifacts":true}}'
+  pnpm tauri build --config '{"bundle":{"createUpdaterArtifacts":true}}'
 else
-  pnpm tauri build --target universal-apple-darwin
+  pnpm tauri build
 fi
 
-BUNDLE="$GUI_DIR/src-tauri/target/universal-apple-darwin/release/bundle"
+BUNDLE="$GUI_DIR/src-tauri/target/release/bundle"
 echo
 echo "==> Done."
 for dmg in "$BUNDLE"/dmg/*.dmg; do
@@ -94,8 +91,7 @@ if [[ "$UPDATER" == "1" ]]; then
   "notes": "Cloak $VERSION — see the release page for details.",
   "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "platforms": {
-    "darwin-aarch64": { "signature": "$SIG", "url": "$URL" },
-    "darwin-x86_64": { "signature": "$SIG", "url": "$URL" }
+    "darwin-aarch64": { "signature": "$SIG", "url": "$URL" }
   }
 }
 JSON

@@ -85,11 +85,15 @@ From the repository root:
 ./scripts/build-macos.sh
 ```
 
-It builds `cloakd` for Apple Silicon **and** Intel, merges them into a
-universal binary, and produces a universal
-`Cloak_<version>_universal.dmg` under
-`apps/cloak-gui/src-tauri/target/universal-apple-darwin/release/bundle/dmg/`.
-That one DMG runs on every Mac.
+It builds `cloakd` and the app for **Apple Silicon** (arm64) and produces
+`Cloak_<version>_aarch64.dmg` under
+`apps/cloak-gui/src-tauri/target/release/bundle/dmg/`. This covers every Mac
+with an M-series chip (M1 and later).
+
+> Intel Macs are not built by default. To support them you'd ship a
+> *universal* binary: `rustup target add x86_64-apple-darwin`, build `cloakd`
+> for both arches and `lipo` them, and `tauri build --target
+> universal-apple-darwin`. Apple Silicon — only is fine for most audiences.
 
 ### Code signing & notarization
 
@@ -113,7 +117,7 @@ environment variables are set:
 Export those, then re-run `./scripts/build-macos.sh`. Tauri signs the app
 (the embedded `cloakd` included) with the hardened runtime, submits it to
 Apple's notary service, and staples the ticket. The resulting DMG opens
-cleanly on any Mac.
+cleanly on any Apple Silicon Mac.
 
 (For CI, `APPLE_CERTIFICATE` + `APPLE_CERTIFICATE_PASSWORD` import the
 certificate from a base64 blob instead of the login keychain. An App Store
