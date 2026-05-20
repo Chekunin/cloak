@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./preview-banner.jpg" alt="Cloak — let your AI assistant use your passwords and API keys without ever seeing them" width="100%">
+</p>
+
 # Cloak
 
 **Let your AI assistant use your passwords and API keys — without ever seeing them.**
