@@ -1,10 +1,8 @@
 <p align="center">
-  <img src="./preview-banner.jpg" alt="Cloak — let your AI assistant use your passwords and API keys without ever seeing them" width="100%">
+  <img src="./preview-banner.jpg" alt="Cloak — credentials your AI agent never sees" width="100%">
 </p>
 
-# Cloak
-
-**Let your AI assistant use your passwords and API keys — without ever seeing them.**
+# Cloak — credentials your AI agent never sees
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
 ![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8?logo=go&logoColor=white)
