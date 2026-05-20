@@ -136,12 +136,74 @@ The [**user manual**](./MANUAL.md) is the complete reference.
 
 ---
 
+## A `.env` with no secrets in it
+
+This is the everyday win. Your `.env` today probably looks like this:
+
+```dotenv
+DATABASE_URL=postgresql://admin:S3cr3t-Pa55w0rd@db.prod.example.com:5432/app
+STRIPE_API_KEY=sk_live_51H4xQ2eZ...realkey...
+```
+
+Every value is a real, working secret — and your AI agent, your editor, your
+Git history, and anyone you ever share the file with can read all of it.
+
+With Cloak you move those values into the vault **once**, and your `.env`
+points at local endpoints instead.
+
+**1. Store the real credentials in Cloak — once.**
+
+```bash
+cloak secret add postgres prod-db      # your real database
+cloak secret add http     payments-api # your real API key
+```
+
+When prompted, choose **persistent** mode, give each a fixed port (say `54200`
+and `54100`), and answer **n** to "require local authentication" so the `.env`
+value stays stable. Then enter the real host, password, and API key — they go
+straight into the encrypted vault. (In the desktop app, you make the same
+choices in the Add Secret screen.)
+
+**2. Point your `.env` at the local endpoints.**
+
+```dotenv
+# .env — not one real secret left in here
+DATABASE_URL=postgresql://cloak@127.0.0.1:54200/app?sslmode=disable
+PAYMENTS_API_URL=http://127.0.0.1:54100
+```
+
+**3. That's it.** Your database driver needs no change — the same
+`DATABASE_URL` variable, it just points at Cloak now. For an API, point your
+HTTP client at the local URL. Cloak, running in the background with the vault
+unlocked, swaps in the real host, password, and API key on every request.
+
+Your `.env` now holds only loopback addresses. If your AI agent reads it, if
+it lands in a Git commit, if you paste it into a chat — there is nothing
+sensitive to leak. The real credentials never left the vault.
+
+And you get two things for free:
+
+- **Rotate in one place.** Password changed? Run `cloak secret rotate prod-db`
+  once — every `.env` and every service pointing at that endpoint keeps
+  working, with no edits and no redeploys.
+- **One audit trail.** Every connection through the endpoint is logged — you
+  can see what used the credential, and when.
+
+> Declining local authentication is what keeps the `.env` value static. The
+> endpoint is still reachable only from your own machine, and only while the
+> vault is unlocked. If you want a per-endpoint password as well, don't
+> hardcode the URL — launch your app with `cloak exec` instead (see the
+> [manual](./MANUAL.md)).
+
+---
+
 ## Examples
 
-**Run your app with a database URL wired in — no password in the `.env` file:**
+**Inject credentials at runtime — nothing written to a file at all:**
 
 ```bash
 cloak exec --with prod-db -- ./my-app
+# my-app starts with DATABASE_URL set; the endpoint closes when it exits
 ```
 
 **Let an API be called without the key ever touching the code or the shell:**
