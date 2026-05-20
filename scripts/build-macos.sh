@@ -63,6 +63,14 @@ else
   echo "==> Apple code signing: disabled — the app will be unsigned."
 fi
 
+# An interrupted previous build can leave a DMG mounted and a stale read-write
+# image behind; the macOS DMG bundler (bundle_dmg.sh) then fails on the next
+# run. Clear that state up front so the build is repeatable.
+for vol in /Volumes/dmg.*; do
+  [[ -d "$vol" ]] && hdiutil detach -force "$vol" >/dev/null 2>&1 || true
+done
+rm -f "$GUI_DIR"/src-tauri/target/release/bundle/macos/rw.*.dmg 2>/dev/null || true
+
 echo "==> Building the Cloak app (arm64)"
 cd "$GUI_DIR"
 pnpm install --frozen-lockfile
