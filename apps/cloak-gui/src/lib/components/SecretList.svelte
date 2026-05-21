@@ -18,7 +18,7 @@
   import EmptyState from './EmptyState.svelte';
   import SecretCard from './SecretCard.svelte';
   import ConfirmDialog, { type ConfirmConfig } from './ConfirmDialog.svelte';
-  import RevealDialog from './RevealDialog.svelte';
+  import SecretDialog from './SecretDialog.svelte';
 
   const vaultUnlocked = $derived(
     vaultStore.phase.kind === 'ok' && vaultStore.phase.status.state === 'unlocked',
@@ -56,7 +56,7 @@
 
   let confirmConfig = $state<ConfirmConfig | null>(null);
   let pendingDelete = $state<string | null>(null);
-  let revealName = $state<string | null>(null);
+  let editName = $state<string | null>(null);
 
   function askDelete(name: string) {
     pendingDelete = name;
@@ -132,7 +132,7 @@
         <SecretCard
           secret={row.secret}
           endpoint={row.endpoint}
-          onReveal={(name) => (revealName = name)}
+          onEdit={(name) => (editName = name)}
           onDelete={askDelete}
         />
       {/each}
@@ -141,4 +141,4 @@
 {/if}
 
 <ConfirmDialog config={confirmConfig} onClose={onConfirmClose} />
-<RevealDialog secretName={revealName} onClose={() => (revealName = null)} />
+<SecretDialog secretName={editName} onClose={() => (editName = null)} />

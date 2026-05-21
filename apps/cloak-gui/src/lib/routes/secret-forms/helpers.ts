@@ -59,6 +59,87 @@ export function validateEndpointConfig(
   return errors;
 }
 
+// --- generic editable fields --------------------------------------------
+
+/**
+ * One editable leaf of a secret's `config` or `secret` object. Nested objects
+ * are flattened to dotted paths so a single key/value editor handles every
+ * secret type — the same flattening the reveal dialog uses for display.
+ */
+export interface EditableField {
+  /** Dotted path, e.g. `inject.headers.Authorization`. */
+  path: string;
+  /** Editable string representation of the value. */
+  value: string;
+  /** How `value` is coerced back to JSON on save. */
+  kind: 'string' | 'number' | 'boolean' | 'json';
+  /** String leaves that arrived with newlines (e.g. a PEM) — render multi-line. */
+  multiline: boolean;
+}
+
+/** Flatten an object into editable leaf fields. */
+export function toEditableFields(
+  obj: Record<string, unknown>,
+  prefix = '',
+): EditableField[] {
+  const out: EditableField[] = [];
+  for (const [k, v] of Object.entries(obj)) {
+    const path = prefix ? `${prefix}.${k}` : k;
+    if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+      out.push(...toEditableFields(v as Record<string, unknown>, path));
+    } else if (typeof v === 'string') {
+      out.push({ path, value: v, kind: 'string', multiline: v.includes('\n') });
+    } else if (typeof v === 'number') {
+      out.push({ path, value: String(v), kind: 'number', multiline: false });
+    } else if (typeof v === 'boolean') {
+      out.push({ path, value: String(v), kind: 'boolean', multiline: false });
+    } else {
+      out.push({ path, value: JSON.stringify(v), kind: 'json', multiline: true });
+    }
+  }
+  return out;
+}
+
+/** Rebuild a nested object from editable fields. Throws on invalid input. */
+export function fromEditableFields(
+  fields: EditableField[],
+): Record<string, unknown> {
+  const root: Record<string, unknown> = {};
+  for (const f of fields) {
+    const parts = f.path.split('.');
+    let cur = root;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const next = cur[parts[i]];
+      if (typeof next !== 'object' || next === null) cur[parts[i]] = {};
+      cur = cur[parts[i]] as Record<string, unknown>;
+    }
+    cur[parts[parts.length - 1]] = coerceField(f);
+  }
+  return root;
+}
+
+function coerceField(f: EditableField): unknown {
+  switch (f.kind) {
+    case 'string':
+      return f.value;
+    case 'number': {
+      const n = Number(f.value);
+      if (f.value.trim() === '' || !Number.isFinite(n)) {
+        throw new Error(`"${f.path}" must be a number.`);
+      }
+      return n;
+    }
+    case 'boolean':
+      return f.value.trim().toLowerCase() === 'true';
+    case 'json':
+      try {
+        return JSON.parse(f.value) as unknown;
+      } catch {
+        throw new Error(`"${f.path}" must be valid JSON.`);
+      }
+  }
+}
+
 /** Common error-message extraction for create / update calls. */
 export function extractErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'message' in err) {

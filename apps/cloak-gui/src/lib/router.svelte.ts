@@ -3,14 +3,14 @@
  *
  * Routes are identified by a string like "dashboard" or "secrets:create";
  * any extra `:`-separated segments after the matched path are exposed via
- * `params`. For example, `#secrets:edit:prod-db` resolves to
- * `{ path: "secrets:edit", params: ["prod-db"] }`.
+ * `params`. For example, `#secrets:rotate:prod-db` resolves to
+ * `{ path: "secrets:rotate", params: ["prod-db"] }`.
  *
  * Usage:
  *   import { router, navigate } from '$lib/router.svelte';
  *   router.route.path                  // → "dashboard"
  *   router.route.params[0]             // → "prod-db" for parametric routes
- *   navigate('secrets:edit', 'prod-db')
+ *   navigate('secrets:rotate', 'prod-db')
  *
  * Why not svelte-spa-router? A handful of named screens, no deep linking,
  * no auth-aware redirects. Bespoke routing is easier to audit and ~80 lines.
@@ -21,7 +21,6 @@ export type RoutePath =
   | 'unlock'
   | 'dashboard'
   | 'secrets:create'
-  | 'secrets:edit'
   | 'secrets:rotate'
   | 'run'
   | 'tokens'
@@ -30,7 +29,6 @@ export type RoutePath =
 /** Two-segment routes — must be matched before falling through to the prefix. */
 const TWO_SEGMENT_ROUTES = new Set<RoutePath>([
   'secrets:create',
-  'secrets:edit',
   'secrets:rotate',
 ]);
 

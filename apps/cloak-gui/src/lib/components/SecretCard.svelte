@@ -19,11 +19,11 @@
     secret: Secret;
     /** The secret's open endpoint, if one is currently running. */
     endpoint?: Endpoint;
-    onReveal: (name: string) => void;
+    onEdit: (name: string) => void;
     onDelete: (name: string) => void;
   }
 
-  const { secret, endpoint, onReveal, onDelete }: Props = $props();
+  const { secret, endpoint, onEdit, onDelete }: Props = $props();
 
   const isEnv = $derived(secret.type === 'env');
   const materialized = $derived(endpoint?.kind === 'materialized');
@@ -142,7 +142,11 @@
 
             {#if endpoint.connection_string}
               <div class="mt-2">
-                <MaskedString value={endpoint.connection_string} label="Connection URL copied" />
+                <MaskedString
+                  value={endpoint.connection_string}
+                  sensitive={false}
+                  label="Connection URL copied"
+                />
               </div>
             {/if}
 
@@ -179,7 +183,7 @@
                             {k}
                           </td>
                           <td class="bg-white px-3 py-2 align-top dark:bg-zinc-900">
-                            <MaskedString value={v} label={`${k} copied`} />
+                            <MaskedString value={v} sensitive={false} label={`${k} copied`} />
                           </td>
                         </tr>
                       {/each}
@@ -214,14 +218,7 @@
       <button
         type="button"
         class="text-zinc-600 hover:underline dark:text-zinc-300"
-        onclick={() => onReveal(secret.name)}
-      >
-        Reveal
-      </button>
-      <button
-        type="button"
-        class="text-zinc-600 hover:underline dark:text-zinc-300"
-        onclick={() => navigate('secrets:edit', secret.name)}
+        onclick={() => onEdit(secret.name)}
       >
         Edit
       </button>

@@ -19,7 +19,6 @@
   import Unlock from '$lib/routes/Unlock.svelte';
   import Dashboard from '$lib/routes/Dashboard.svelte';
   import SecretCreate from '$lib/routes/SecretCreate.svelte';
-  import SecretEdit from '$lib/routes/SecretEdit.svelte';
   import SecretRotate from '$lib/routes/SecretRotate.svelte';
   import Run from '$lib/routes/Run.svelte';
   import Tokens from '$lib/routes/Tokens.svelte';
@@ -87,10 +86,6 @@
             <Dashboard />
           {:else if router.route.path === 'secrets:create'}
             <SecretCreate />
-          {:else if router.route.path === 'secrets:edit'}
-            {#key router.route.params[0]}
-              <SecretEdit />
-            {/key}
           {:else if router.route.path === 'secrets:rotate'}
             {#key router.route.params[0]}
               <SecretRotate />
