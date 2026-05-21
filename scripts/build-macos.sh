@@ -35,6 +35,13 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 1
 fi
 
+# Skip the DMG's Finder-prettifying AppleScript step. That step drives Finder
+# over Apple Events, which fails unless the running terminal has been granted
+# Automation permission — a silent, fatal `bundle_dmg.sh` error otherwise.
+# With CI set, Tauri passes --skip-jenkins and builds a plain (still fully
+# functional) DMG. There is no custom DMG background or icon layout to lose.
+export CI=true
+
 echo "==> Building cloakd (arm64)"
 mkdir -p "$BIN_DIR"
 CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w" \
