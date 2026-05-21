@@ -1,11 +1,42 @@
 <script lang="ts">
+  import { onMount, onDestroy } from 'svelte';
   import { vault, isCommandError } from '$lib/api';
   import { vaultStore } from '$lib/stores/vault.svelte';
+  import { endpointsStore } from '$lib/stores/endpoints.svelte';
+  import { secretsStore } from '$lib/stores/secrets.svelte';
   import { toasts } from '$lib/stores/toasts.svelte';
   import { navigate } from '$lib/router.svelte';
   import Button from '$lib/components/Button.svelte';
   import Card from '$lib/components/Card.svelte';
   import StatTile from '$lib/components/StatTile.svelte';
+  import EndpointList from '$lib/components/EndpointList.svelte';
+
+  const vaultUnlocked = $derived(
+    vaultStore.phase.kind === 'ok' && vaultStore.phase.status.state === 'unlocked',
+  );
+
+  // Keep the endpoint/secret stores polling while the dashboard is mounted so
+  // the Endpoints panel below stays live, mirroring the Endpoints tab.
+  onMount(() => {
+    if (vaultUnlocked) {
+      endpointsStore.start();
+      secretsStore.start();
+    }
+  });
+  onDestroy(() => {
+    endpointsStore.stop();
+    secretsStore.stop();
+  });
+
+  $effect(() => {
+    if (vaultUnlocked) {
+      endpointsStore.start();
+      secretsStore.start();
+    } else {
+      endpointsStore.stop();
+      secretsStore.stop();
+    }
+  });
 
   function formatExpiresAt(iso: string | null | undefined): string {
     if (!iso) return '—';
@@ -47,7 +78,7 @@
         Vault status and live endpoint activity.
       </p>
     </div>
-    {#if vaultStore.phase.kind === 'ok' && vaultStore.phase.status.state === 'unlocked'}
+    {#if vaultUnlocked}
       <Button variant="secondary" onclick={onLock}>Lock vault</Button>
     {/if}
   </header>
@@ -67,12 +98,11 @@
       </div>
     {:else}
       {@const s = vaultStore.phase.status}
-      <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <StatTile label="State" value={s.state} />
-        <StatTile label="Idle timeout" value={formatTimeout(s.idle_timeout_sec)} />
         <StatTile
-          label="Open endpoints"
-          value={s.endpoints_open}
+          label="Idle timeout"
+          value={formatTimeout(s.idle_timeout_sec)}
           hint={s.state === 'unlocked' && s.expires_at
             ? `Auto-lock at ${formatExpiresAt(s.expires_at)}`
             : undefined}
@@ -80,4 +110,19 @@
       </div>
     {/if}
   </Card>
+
+  <section class="flex flex-col gap-4">
+    <div class="flex items-center justify-between">
+      <div>
+        <h2 class="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+          Endpoints
+        </h2>
+        <p class="text-sm text-zinc-500 dark:text-zinc-400">
+          Local listeners proxying to your upstream services.
+        </p>
+      </div>
+      <Button variant="ghost" onclick={() => navigate('endpoints')}>View all</Button>
+    </div>
+    <EndpointList />
+  </section>
 </div>
