@@ -83,9 +83,7 @@
     <div class="flex h-full">
       <Sidebar />
       <div class="flex h-full flex-1 flex-col overflow-hidden">
-        <div class="border-b border-zinc-200 px-6 py-3 dark:border-zinc-800">
-          <ConnectionBanner />
-        </div>
+        <ConnectionBanner />
         <main class="flex-1 overflow-y-auto">
           {#if router.route.path === 'dashboard'}
             <Dashboard />

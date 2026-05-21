@@ -1,6 +1,7 @@
 <script lang="ts">
   import { router, navigate, type RoutePath } from '$lib/router.svelte';
   import { vaultStore } from '$lib/stores/vault.svelte';
+  import { connection } from '$lib/stores/connection.svelte';
   import { palette } from '$lib/stores/palette.svelte';
   import VaultStateChip from './VaultStateChip.svelte';
 
@@ -109,6 +110,15 @@
     {#if vaultStore.phase.kind === 'ok'}
       <div class="px-2">
         <VaultStateChip state={vaultStore.phase.status.state} />
+      </div>
+    {/if}
+    {#if connection.state.kind === 'connected'}
+      <div
+        class="flex items-center gap-1.5 px-2 text-[11px] text-zinc-400 dark:text-zinc-500"
+        title="Connected via {connection.state.socketPath}"
+      >
+        <span class="size-1.5 shrink-0 rounded-full bg-emerald-500"></span>
+        <span class="truncate font-mono">{connection.state.socketPath}</span>
       </div>
     {/if}
   </div>

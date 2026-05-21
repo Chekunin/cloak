@@ -13,6 +13,12 @@
       vaultStore.phase.status.state === 'unlocked',
   );
 
+  /**
+   * Whether the banner has anything worth showing. A healthy, authorised
+   * connection needs no banner — the socket path lives in the sidebar footer.
+   */
+  const showBanner = $derived(connection.state.kind !== 'connected' || needsToken);
+
   let bootstrapping = $state(false);
 
   async function onBootstrap() {
@@ -41,41 +47,38 @@
   }
 </script>
 
-{#if connection.state.kind === 'connecting'}
-  <div
-    class="rounded-md border border-zinc-200 bg-zinc-100 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
-  >
-    Connecting to <code class="select-text">cloakd</code>…
-  </div>
-{:else if connection.state.kind === 'disconnected'}
-  <div
-    class="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200"
-  >
-    <strong>Daemon unreachable.</strong>
-    {connection.state.message}. Is <code class="select-text">cloak daemon start</code> running?
-  </div>
-{:else if needsToken}
-  <div
-    class="flex items-center justify-between gap-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200"
-  >
-    <div>
-      <strong>GUI is not authorised.</strong>
-      Issue a client token so the daemon accepts our calls.
-    </div>
-    <button
-      type="button"
-      onclick={onBootstrap}
-      disabled={bootstrapping}
-      class="rounded-md bg-amber-900 px-3 py-1 text-xs font-medium text-white transition hover:bg-amber-950 disabled:opacity-50 dark:bg-amber-200 dark:text-amber-950 dark:hover:bg-amber-100"
-    >
-      {bootstrapping ? 'Working…' : 'Set up'}
-    </button>
-  </div>
-{:else}
-  <div
-    class="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200"
-  >
-    Connected via
-    <code class="select-text font-mono text-xs">{connection.state.socketPath}</code>
+{#if showBanner}
+  <div class="border-b border-zinc-200 px-6 py-3 dark:border-zinc-800">
+    {#if connection.state.kind === 'connecting'}
+      <div
+        class="rounded-md border border-zinc-200 bg-zinc-100 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
+      >
+        Connecting to <code class="select-text">cloakd</code>…
+      </div>
+    {:else if connection.state.kind === 'disconnected'}
+      <div
+        class="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200"
+      >
+        <strong>Daemon unreachable.</strong>
+        {connection.state.message}. Is <code class="select-text">cloak daemon start</code> running?
+      </div>
+    {:else if needsToken}
+      <div
+        class="flex items-center justify-between gap-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200"
+      >
+        <div>
+          <strong>GUI is not authorised.</strong>
+          Issue a client token so the daemon accepts our calls.
+        </div>
+        <button
+          type="button"
+          onclick={onBootstrap}
+          disabled={bootstrapping}
+          class="rounded-md bg-amber-900 px-3 py-1 text-xs font-medium text-white transition hover:bg-amber-950 disabled:opacity-50 dark:bg-amber-200 dark:text-amber-950 dark:hover:bg-amber-100"
+        >
+          {bootstrapping ? 'Working…' : 'Set up'}
+        </button>
+      </div>
+    {/if}
   </div>
 {/if}
