@@ -41,26 +41,10 @@
     {
       id: 'nav.dashboard',
       label: 'Go to Dashboard',
-      hint: 'Vault status and live counters.',
-      search: 'go to dashboard home',
+      hint: 'Vault status, secrets and live endpoints.',
+      search: 'go to dashboard home secrets endpoints credentials listeners',
       enabled: () => true,
       run: () => navigate('dashboard'),
-    },
-    {
-      id: 'nav.secrets',
-      label: 'Go to Secrets',
-      hint: 'Stored credentials.',
-      search: 'go to secrets credentials',
-      enabled: () => true,
-      run: () => navigate('secrets'),
-    },
-    {
-      id: 'nav.endpoints',
-      label: 'Go to Endpoints',
-      hint: 'Live listeners.',
-      search: 'go to endpoints listeners',
-      enabled: () => true,
-      run: () => navigate('endpoints'),
     },
     {
       id: 'nav.run',

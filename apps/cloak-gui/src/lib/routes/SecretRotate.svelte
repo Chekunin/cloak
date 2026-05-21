@@ -43,7 +43,7 @@
 
   onMount(async () => {
     if (!secretName) {
-      navigate('secrets');
+      navigate('dashboard');
       return;
     }
     try {
@@ -131,7 +131,7 @@
       });
       toasts.success(`Rotated ${rec.name}`, 'Open connections continue to use the old credential.');
       await secretsStore.refresh();
-      navigate('secrets');
+      navigate('dashboard');
     } catch (e) {
       topError = isCommandError(e) ? e.message : extractErrorMessage(e);
     } finally {
@@ -145,9 +145,9 @@
     <button
       type="button"
       class="text-xs text-zinc-500 hover:underline dark:text-zinc-400"
-      onclick={() => navigate('secrets')}
+      onclick={() => navigate('dashboard')}
     >
-      ← Back to secrets
+      ← Back to dashboard
     </button>
     <h1 class="mt-2 text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
       Rotate secret material
@@ -254,7 +254,7 @@
           <Button
             variant="ghost"
             type="button"
-            onclick={() => navigate('secrets')}
+            onclick={() => navigate('dashboard')}
             disabled={submitting}>Cancel</Button
           >
           <Button type="submit" variant="danger" loading={submitting} disabled={submitting}>

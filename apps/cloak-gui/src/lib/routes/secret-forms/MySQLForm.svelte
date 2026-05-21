@@ -69,7 +69,7 @@
       });
       toasts.success(`Secret "${form.name}" created`);
       await secretsStore.refresh();
-      navigate('secrets');
+      navigate('dashboard');
     } catch (err) {
       topError = extractErrorMessage(err);
     } finally {
@@ -140,7 +140,7 @@
     {/if}
 
     <div class="flex items-center justify-end gap-2 pt-2">
-      <Button variant="ghost" type="button" onclick={() => navigate('secrets')} disabled={submitting}>
+      <Button variant="ghost" type="button" onclick={() => navigate('dashboard')} disabled={submitting}>
         Cancel
       </Button>
       <Button type="submit" loading={submitting} disabled={submitting}>Create secret</Button>

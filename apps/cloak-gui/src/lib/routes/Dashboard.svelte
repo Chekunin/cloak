@@ -6,50 +6,42 @@
   import { secretsStore } from '$lib/stores/secrets.svelte';
   import { toasts } from '$lib/stores/toasts.svelte';
   import { navigate } from '$lib/router.svelte';
+  import { formatDate, formatTimeout } from '$lib/format';
   import Button from '$lib/components/Button.svelte';
   import Card from '$lib/components/Card.svelte';
   import StatTile from '$lib/components/StatTile.svelte';
-  import EndpointList from '$lib/components/EndpointList.svelte';
+  import SecretList from '$lib/components/SecretList.svelte';
 
   const vaultUnlocked = $derived(
     vaultStore.phase.kind === 'ok' && vaultStore.phase.status.state === 'unlocked',
   );
 
-  // Keep the endpoint/secret stores polling while the dashboard is mounted so
-  // the Endpoints panel below stays live, mirroring the Endpoints tab.
+  const hasSecrets = $derived(
+    secretsStore.phase.kind === 'ok' && secretsStore.phase.items.length > 0,
+  );
+
+  // Keep the secret + endpoint stores polling while this page is mounted so
+  // the list below stays live.
   onMount(() => {
     if (vaultUnlocked) {
-      endpointsStore.start();
       secretsStore.start();
+      endpointsStore.start();
     }
   });
   onDestroy(() => {
-    endpointsStore.stop();
     secretsStore.stop();
+    endpointsStore.stop();
   });
 
   $effect(() => {
     if (vaultUnlocked) {
-      endpointsStore.start();
       secretsStore.start();
+      endpointsStore.start();
     } else {
-      endpointsStore.stop();
       secretsStore.stop();
+      endpointsStore.stop();
     }
   });
-
-  function formatExpiresAt(iso: string | null | undefined): string {
-    if (!iso) return '—';
-    const t = new Date(iso);
-    if (Number.isNaN(t.getTime())) return iso;
-    return t.toLocaleString();
-  }
-
-  function formatTimeout(seconds: number): string {
-    if (seconds >= 3600) return `${Math.round(seconds / 3600)}h`;
-    if (seconds >= 60) return `${Math.round(seconds / 60)}m`;
-    return `${seconds}s`;
-  }
 
   async function onLock() {
     try {
@@ -75,7 +67,7 @@
         Dashboard
       </h1>
       <p class="text-sm text-zinc-500 dark:text-zinc-400">
-        Vault status and live endpoint activity.
+        Your secrets and their live endpoints.
       </p>
     </div>
     {#if vaultUnlocked}
@@ -104,7 +96,7 @@
           label="Idle timeout"
           value={formatTimeout(s.idle_timeout_sec)}
           hint={s.state === 'unlocked' && s.expires_at
-            ? `Auto-lock at ${formatExpiresAt(s.expires_at)}`
+            ? `Auto-lock at ${formatDate(s.expires_at)}`
             : undefined}
         />
       </div>
@@ -112,17 +104,19 @@
   </Card>
 
   <section class="flex flex-col gap-4">
-    <div class="flex items-center justify-between">
+    <div class="flex items-center justify-between gap-3">
       <div>
         <h2 class="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-          Endpoints
+          Secrets
         </h2>
         <p class="text-sm text-zinc-500 dark:text-zinc-400">
-          Local listeners proxying to your upstream services.
+          Stored credentials, each with an optional local endpoint. Running endpoints sort first.
         </p>
       </div>
-      <Button variant="ghost" onclick={() => navigate('endpoints')}>View all</Button>
+      {#if vaultUnlocked && hasSecrets}
+        <Button onclick={() => navigate('secrets:create')}>Add secret</Button>
+      {/if}
     </div>
-    <EndpointList />
+    <SecretList />
   </section>
 </div>

@@ -66,9 +66,9 @@
     <button
       type="button"
       class="text-xs text-zinc-500 hover:underline dark:text-zinc-400"
-      onclick={() => (chosen ? (chosen = null) : navigate('secrets'))}
+      onclick={() => (chosen ? (chosen = null) : navigate('dashboard'))}
     >
-      ← {chosen ? 'Choose a different type' : 'Back to secrets'}
+      ← {chosen ? 'Choose a different type' : 'Back to dashboard'}
     </button>
     <h1 class="mt-2 text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
       {chosen ? titles[chosen] : 'Add a secret'}

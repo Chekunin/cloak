@@ -20,11 +20,9 @@ export type RoutePath =
   | 'welcome'
   | 'unlock'
   | 'dashboard'
-  | 'secrets'
   | 'secrets:create'
   | 'secrets:edit'
   | 'secrets:rotate'
-  | 'endpoints'
   | 'run'
   | 'tokens'
   | 'audit';
@@ -40,8 +38,6 @@ const ONE_SEGMENT_ROUTES = new Set<RoutePath>([
   'welcome',
   'unlock',
   'dashboard',
-  'secrets',
-  'endpoints',
   'run',
   'tokens',
   'audit',

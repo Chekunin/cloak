@@ -18,11 +18,9 @@
   import Welcome from '$lib/routes/Welcome.svelte';
   import Unlock from '$lib/routes/Unlock.svelte';
   import Dashboard from '$lib/routes/Dashboard.svelte';
-  import Secrets from '$lib/routes/Secrets.svelte';
   import SecretCreate from '$lib/routes/SecretCreate.svelte';
   import SecretEdit from '$lib/routes/SecretEdit.svelte';
   import SecretRotate from '$lib/routes/SecretRotate.svelte';
-  import Endpoints from '$lib/routes/Endpoints.svelte';
   import Run from '$lib/routes/Run.svelte';
   import Tokens from '$lib/routes/Tokens.svelte';
   import Audit from '$lib/routes/Audit.svelte';
@@ -87,8 +85,6 @@
         <main class="flex-1 overflow-y-auto">
           {#if router.route.path === 'dashboard'}
             <Dashboard />
-          {:else if router.route.path === 'secrets'}
-            <Secrets />
           {:else if router.route.path === 'secrets:create'}
             <SecretCreate />
           {:else if router.route.path === 'secrets:edit'}
@@ -99,8 +95,6 @@
             {#key router.route.params[0]}
               <SecretRotate />
             {/key}
-          {:else if router.route.path === 'endpoints'}
-            <Endpoints />
           {:else if router.route.path === 'run'}
             <Run />
           {:else if router.route.path === 'tokens'}
